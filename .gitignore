@@ -1,0 +1,10 @@
+# === WHITELIST KETAT ===
+# Default: abaikan SEMUA. Hanya file aman (terenkripsi + README) yang boleh masuk repo.
+# Mencegah kebocoran: dashboard.html (sumber), dashboard_seed.html (DATA plaintext!),
+# projects.json, history.json, *.xlsx, quote PDF, gaji, dan script build.
+*
+
+# Pengecualian — hanya ini yang di-publish:
+!.gitignore
+!index.html
+!README.md
