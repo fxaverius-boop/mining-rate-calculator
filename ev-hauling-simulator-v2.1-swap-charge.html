@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="id"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>EV Hauling Simulator v2.1 - Swap Battery</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700;800&display=swap" rel="stylesheet">
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>*{margin:0;padding:0;box-sizing:border-box}body{background:#05080e;font-family:'Segoe UI',system-ui,sans-serif}input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none}input[type=number]{-moz-appearance:textfield}::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:#0a1019}::-webkit-scrollbar-thumb{background:#1a2847;border-radius:3px}@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}table{border-spacing:0}canvas{display:block}</style>
+</head><body><div id="root"></div>
+<script type="text/babel">
+const{useState,useEffect,useRef,useCallback}=React;
+const C={bg:"#05080e",card:"#0d1424",cardAlt:"#121d33",surface:"#0a1019",border:"#1a2847",cyan:"#00e5ff",cyanD:"#007c8a",green:"#00e676",amber:"#ffab00",amberD:"#e65100",red:"#ff5252",purple:"#b388ff",pink:"#ff80ab",blue:"#448aff",white:"#edf1f7",dim:"#7a8da8",muted:"#4a5c7a",teal:"#26a69a"};
+
+const STEP={
+  hauling_kosong:{l:"Hauling Kosong",c:C.blue},
+  antri_loader:{l:"Antri Loader ⚡",c:C.amber},
+  loading_cpp:{l:"Loading",c:C.purple},
+  hauling_isi:{l:"Hauling Isi",c:C.green},
+  antri_dump:{l:"Antri Dump ⚡",c:"#ff6e40"},
+  dumping:{l:"Dumping",c:C.pink},
+  antri_swap:{l:"Antri Swap 🔋",c:C.red},
+  antri_batt:{l:"Tunggu Batt ⏳",c:"#e040fb"},
+  swapping:{l:"Swap Battery 🔋",c:"#ffd740"},
+  idle:{l:"Idle",c:C.muted},
+  shift_change:{l:"Shift Change",c:"#5c6bc0"},
+  rest_break:{l:"Istirahat",c:C.teal}
+};
+
+const DEF={
+  totalTrucks:13,
+  payload:40,
+  batteryCapacity:282,
+  consEmpty:2.0,
+  consLoaded:3.2,
+  spdEmpty:30,
+  spdLoaded:20,
+  socMin:20,
+  socMax:80,
+  paUnit:90,
+  distEmpty:4,
+  distLoaded:4,
+  numLoaders:1,
+  tLoad:12,
+  tAntriLoader:0,  /* buffer antri loader (menit) — tambahan expected queue/maneuver time */
+  numDumps:1,
+  tDump:5,
+  tAntriDump:0,    /* buffer antri dump (menit) — tambahan expected queue time */
+  tSwap:5,
+  numSwapStations:2,
+  battPerStation:8,
+  tBattCharge:45, // charging time 20%->80% in minutes
+  shiftH:24,
+  staggerMin:0,
+  shiftChangeDur:30,
+  restBreakDur:60,
+  idleConsKwMin:0.05
+};
+
+const mono="'JetBrains Mono',monospace";
+
+function fact(n){let r=1;for(let i=2;i<=n;i++)r*=i;return r}
+function mmc(l,m,c){if(l<=0||m<=0||c<=0)return{Lq:0,Wq:0,rho:0,P0:0,Pw:0};const rho=l/(c*m);if(rho>=1)return{Lq:1/0,Wq:1/0,rho,P0:0,Pw:1};const a=l/m;let s=0;for(let n=0;n<c;n++)s+=Math.pow(a,n)/fact(n);s+=(Math.pow(a,c)/fact(c))*(1/(1-rho));const P0=1/s,Pw=(Math.pow(a,c)/fact(c))*(1/(1-rho))*P0,Lq=Pw*rho/(1-rho),Wq=Lq/l;return{Lq,Wq:Wq*60,rho,P0,Pw}}
+
+function PQ(){
+  const h=[];
+  const sw=(i,j)=>{[h[i],h[j]]=[h[j],h[i]]};
+  const up=i=>{while(i>0){const p=(i-1)>>1;if(h[p].t>h[i].t||(h[p].t===h[i].t&&(h[p].tid||0)>(h[i].tid||0))){sw(p,i);i=p}else break}};
+  const dn=i=>{const n=h.length;while(true){let s=i;const l=2*i+1,r=2*i+2;if(l<n&&(h[l].t<h[s].t||(h[l].t===h[s].t&&(h[l].tid||0)<(h[s].tid||0))))s=l;if(r<n&&(h[r].t<h[s].t||(h[r].t===h[s].t&&(h[r].tid||0)<(h[s].tid||0))))s=r;if(s===i)break;sw(i,s);i=s}};
+  return{push(e){h.push(e);up(h.length-1)},pop(){if(!h.length)return null;const t=h[0];const l=h.pop();if(h.length){h[0]=l;dn(0)}return t},peek(){return h.length?h[0]:null},get size(){return h.length}}
+}
+
+function buildBreaks(p,days){const b=[];for(let d=0;d<days;d++){const o=d*1440;b.push({t:o+720,dur:p.shiftChangeDur,type:"shift_change"});b.push({t:o+360,dur:p.restBreakDur,type:"rest_break"});b.push({t:o+1080,dur:p.restBreakDur,type:"rest_break"});if(d>0)b.push({t:o,dur:p.shiftChangeDur,type:"shift_change"})}return b.filter(x=>x.dur>0).sort((a,b)=>a.t-b.t)}
+
+function advBreaks(now,brks,mx){const logs=[];let t=now;for(const b of brks){if(t>=mx)break;if(b.t+b.dur<=t)continue;if(t>=b.t&&t<b.t+b.dur){const r=b.t+b.dur-t;logs.push({e:b.type,t0:t,d:r});t=b.t+b.dur}else if(b.t>t)break}return{nt:t,logs}}
+
+function runSim(p,days=1){
+  const DAY=p.shiftH*60, TOTAL=DAY*days;
+  const usable=p.batteryCapacity*((p.socMax-p.socMin)/100);
+  const tE=(p.distEmpty/p.spdEmpty)*60, tL=(p.distLoaded/p.spdLoaded)*60;
+  const eE=p.consEmpty*p.distEmpty, eL=p.consLoaded*p.distLoaded, ePT=eE+eL;
+  const idleKw=p.idleConsKwMin;
+  const tPC=Math.max(1,Math.floor(usable/ePT));
+  /* Service times include user-configured antri buffer (expected queue/maneuver) */
+  const tLoadEff = p.tLoad + (p.tAntriLoader||0);
+  const tDumpEff = p.tDump + (p.tAntriDump||0);
+  const cyc = tE + tLoadEff + tL + tDumpEff;
+  const brks=buildBreaks(p,days);
+  let bpd=0;for(const b of buildBreaks(p,1))bpd+=b.dur;
+  const EFF=Math.max(0,(DAY*(p.paUnit/100)-bpd))*days;
+
+  const lB=new Float64Array(p.numLoaders),lBu=new Float64Array(p.numLoaders);
+  const dB=new Float64Array(p.numDumps),dBu=new Float64Array(p.numDumps);
+  const sB=new Float64Array(p.numSwapStations),sBu=new Float64Array(p.numSwapStations);
+
+  // === BATTERY POOL WITH INDIVIDUAL TRACKING ===
+  const totalBatteries=p.battPerStation*p.numSwapStations;
+  const battChargeTime=p.tBattCharge; // parameter: time to charge 20%->80%
+
+  // Each battery: {id, state:'ready'|'charging', readyAt:time}
+  // Initially all batteries are fully charged and ready
+  const battPool=[];
+  for(let i=0;i<totalBatteries;i++){
+    battPool.push({id:i+1,state:'ready',readyAt:0,chargeStart:-1,usedBy:-1})
+  }
+  // PQ for batteries being charged — stores {t:readyAt, battIdx}
+  const chargePQ=PQ();
+
+  // Battery event log for monitoring
+  const battLog=[]; // {t, battId, event:'swapped_out'|'charge_start'|'charge_done'|'given_to_truck', truckId}
+  let swapsDeniedNoBatt=0; // times a truck had to WAIT for battery (none ready)
+  let totalBattWaitTime=0; // total minutes trucks waited for battery availability
+  let swapsWithPartialCharge=0; // shouldn't happen in this model but track anyway
+
+  // Helper: flush charged batteries
+  function flushCharged(now){
+    while(chargePQ.size>0){
+      const pk=chargePQ.peek();
+      if(pk.t<=now){
+        chargePQ.pop();
+        battPool[pk.battIdx].state='ready';
+        battPool[pk.battIdx].readyAt=pk.t;
+        battLog.push({t:pk.t,battId:pk.battIdx+1,event:'charge_done',truckId:-1});
+      }else break;
+    }
+  }
+
+  function countReady(){let c=0;for(const b of battPool)if(b.state==='ready')c++;return c}
+
+  function getReadyBattIdx(){
+    // Return index of a ready battery (prefer earliest readyAt for FIFO fairness)
+    let best=-1,bestT=Infinity;
+    for(let i=0;i<battPool.length;i++){
+      if(battPool[i].state==='ready'&&battPool[i].readyAt<bestT){best=i;bestT=battPool[i].readyAt}
+    }
+    return best;
+  }
+
+  function getNextChargedTime(){
+    const pk=chargePQ.peek();
+    return pk?pk.t:Infinity;
+  }
+
+  const sTL=Array.from({length:p.numSwapStations},()=>[]);
+  const lTL=Array.from({length:p.numLoaders},()=>[]);
+  const dTL=Array.from({length:p.numDumps},()=>[]);
+
+  const T=[];
+  for(let i=0;i<p.totalTrucks;i++)
+    T.push({id:i+1,soc:p.socMax,trips:0,ton:0,ss:0,sw:0,bw:0,lw:0,dw:0,st:0,pt:0,bt:0,rt:0,idleE:0,log:[],done:false});
+
+  const pq=PQ();
+  for(let i=0;i<p.totalTrucks;i++){
+    const st=i*p.staggerMin;
+    if(st>0)T[i].log.push({e:"idle",t0:0,d:st});
+    pq.push({t:st,tid:i,type:'go'})
+  }
+
+  let sf=0;const MX=p.totalTrucks*days*600;
+
+  while(pq.size>0&&sf<MX){
+    sf++;const ev=pq.pop();const tr=T[ev.tid];let now=ev.t;
+    if(tr.done)continue;if(now>=TOTAL){tr.done=true;continue}
+
+    const{nt:n1,logs:bL}=advBreaks(now,brks,TOTAL);
+    for(const bl of bL){tr.log.push(bl);if(bl.e==="shift_change")tr.bt+=bl.d;if(bl.e==="rest_break")tr.rt+=bl.d}
+    now=n1;if(now>=TOTAL){tr.done=true;continue}
+
+    const sA=tr.soc-(ePT/p.batteryCapacity)*100;
+
+    if(sA<p.socMin){
+      // === NEED SWAP BATTERY ===
+      flushCharged(now);
+
+      let battWaitStart=now;
+      let battIdx=getReadyBattIdx();
+
+      if(battIdx<0){
+        // NO battery ready — must wait for next one to finish charging
+        swapsDeniedNoBatt++;
+        const nextTime=getNextChargedTime();
+        if(nextTime===Infinity||nextTime>=TOTAL){
+          const r=TOTAL-now;if(r>0.5)tr.log.push({e:"idle",t0:now,d:r});tr.done=true;continue;
+        }
+        const waitBatt=nextTime-now;
+        if(waitBatt>0.5){
+          tr.log.push({e:"antri_batt",t0:now,d:waitBatt});
+          tr.bw+=waitBatt;
+          totalBattWaitTime+=waitBatt;
+        }
+        now=nextTime;
+        flushCharged(now);
+        battIdx=getReadyBattIdx();
+        if(battIdx<0){
+          // Still nothing — very edge case, idle out
+          const r=TOTAL-now;if(r>0.5)tr.log.push({e:"idle",t0:now,d:r});tr.done=true;continue;
+        }
+      }
+
+      // Find best swap station (earliest available)
+      let bs=0;for(let s=1;s<p.numSwapStations;s++)if(sB[s]<sB[bs])bs=s;
+      let ss=Math.max(now,sB[bs]);
+      const{nt:ss2}=advBreaks(ss,brks,TOTAL);ss=ss2;
+      const se=ss+p.tSwap;
+      if(se>TOTAL){const r=TOTAL-now;if(r>0.5)tr.log.push({e:"idle",t0:now,d:r});tr.done=true;continue}
+
+      // Wait for swap station availability
+      const w=ss-now;
+      if(w>0.5){tr.log.push({e:"antri_swap",t0:now,d:w});tr.sw+=w}
+
+      // Consume battery from pool → mark as 'charging'
+      battPool[battIdx].state='charging';
+      battPool[battIdx].chargeStart=se; // starts charging after swap completes
+      battPool[battIdx].usedBy=tr.id;
+      battPool[battIdx].readyAt=se+battChargeTime;
+      battLog.push({t:ss,battId:battIdx+1,event:'given_to_truck',truckId:tr.id});
+
+      // Schedule this battery to be ready after charging
+      chargePQ.push({t:se+battChargeTime,battIdx:battIdx,tid:battIdx});
+      battLog.push({t:se,battId:battIdx+1,event:'charge_start',truckId:tr.id});
+
+      sB[bs]=se;sBu[bs]+=p.tSwap;
+      sTL[bs].push({truck:tr.id,start:ss,end:se});
+      tr.log.push({e:"swapping",t0:ss,d:p.tSwap,si:bs});
+      tr.soc=p.socMax;tr.ss++;tr.st+=p.tSwap;
+      pq.push({t:se,tid:ev.tid,type:'go'});
+      continue;
+    }
+
+    if(now+cyc>TOTAL){const r=TOTAL-now;if(r>0.5)tr.log.push({e:"idle",t0:now,d:r});tr.done=true;continue}
+
+    let cur=now;
+    tr.log.push({e:"hauling_kosong",t0:cur,d:tE});cur+=tE;tr.pt+=tE;
+    const{nt:c1,logs:b1}=advBreaks(cur,brks,TOTAL);for(const bl of b1){tr.log.push(bl);if(bl.e==="shift_change")tr.bt+=bl.d;if(bl.e==="rest_break")tr.rt+=bl.d}cur=c1;
+
+    // LOADER QUEUE
+    let bl2=0;for(let l=1;l<p.numLoaders;l++)if(lB[l]<lB[bl2])bl2=l;
+    let ls=Math.max(cur,lB[bl2]);const{nt:ls2}=advBreaks(ls,brks,TOTAL);ls=ls2;
+    const lw=ls-cur;
+    if(lw>0.5){tr.log.push({e:"antri_loader",t0:cur,d:lw,li:bl2});tr.lw+=lw;const drain=idleKw*lw;tr.idleE+=drain;tr.soc-=(drain/p.batteryCapacity)*100}
+    cur=ls;lB[bl2]=cur+tLoadEff;lBu[bl2]+=tLoadEff;
+    lTL[bl2].push({truck:tr.id,start:cur,end:cur+tLoadEff});
+    tr.log.push({e:"loading_cpp",t0:cur,d:tLoadEff,li:bl2});cur+=tLoadEff;tr.pt+=tLoadEff;
+
+    const{nt:c3,logs:b3}=advBreaks(cur,brks,TOTAL);for(const bl of b3){tr.log.push(bl);if(bl.e==="shift_change")tr.bt+=bl.d;if(bl.e==="rest_break")tr.rt+=bl.d}cur=c3;
+
+    tr.log.push({e:"hauling_isi",t0:cur,d:tL});cur+=tL;tr.pt+=tL;
+    const{nt:c4,logs:b4}=advBreaks(cur,brks,TOTAL);for(const bl of b4){tr.log.push(bl);if(bl.e==="shift_change")tr.bt+=bl.d;if(bl.e==="rest_break")tr.rt+=bl.d}cur=c4;
+
+    // DUMP QUEUE
+    let bd=0;for(let d=1;d<p.numDumps;d++)if(dB[d]<dB[bd])bd=d;
+    let ds=Math.max(cur,dB[bd]);const{nt:ds2}=advBreaks(ds,brks,TOTAL);ds=ds2;
+    const dwt=ds-cur;
+    if(dwt>0.5){tr.log.push({e:"antri_dump",t0:cur,d:dwt});tr.dw+=dwt;const drain=idleKw*dwt;tr.idleE+=drain;tr.soc-=(drain/p.batteryCapacity)*100}
+    cur=ds;dB[bd]=cur+tDumpEff;dBu[bd]+=tDumpEff;
+    dTL[bd].push({truck:tr.id,start:cur,end:cur+tDumpEff});
+    tr.log.push({e:"dumping",t0:cur,d:tDumpEff});cur+=tDumpEff;tr.pt+=tDumpEff;
+
+    tr.soc-=(ePT/p.batteryCapacity)*100;tr.trips++;tr.ton+=p.payload;
+    pq.push({t:cur,tid:ev.tid,type:'go'});
+  }
+
+  for(const tr of T){if(!tr.done){const l=tr.log[tr.log.length-1];const le=l?(l.t0+l.d):0;if(le<TOTAL){const r=TOTAL-le;if(r>0.5)tr.log.push({e:"idle",t0:le,d:r})}}}
+
+  let tTrips=0,tTon=0,tSS=0,tProd=0,tST=0,tSW=0,tBW=0,tLW=0,tDW=0,tIdle=0,tBT=0,tRT=0,tIE=0;
+  for(const tr of T){
+    tTrips+=tr.trips;tTon+=tr.ton;tSS+=tr.ss;tSW+=tr.sw;tBW+=tr.bw;tST+=tr.st;
+    tProd+=tr.pt;tLW+=tr.lw;tDW+=tr.dw;tBT+=tr.bt;tRT+=tr.rt;tIE+=tr.idleE;
+    for(const l of tr.log)if(l.e==="idle")tIdle+=l.d;
+  }
+  const tA=TOTAL*p.totalTrucks,UA=tA>0?(tProd/tA)*100:0;
+  const lam=p.totalTrucks/(tPC*cyc),mu=1/p.tSwap,qm=mmc(lam,mu,p.numSwapStations);
+
+  const sU=Array.from({length:p.numSwapStations},(_,i)=>({id:i+1,busy:sBu[i],util:TOTAL>0?(sBu[i]/TOTAL)*100:0,sess:sTL[i].length}));
+  const lU=Array.from({length:p.numLoaders},(_,i)=>({id:i+1,busy:lBu[i],util:TOTAL>0?(lBu[i]/TOTAL)*100:0,sess:lTL[i].length}));
+  const dU=Array.from({length:p.numDumps},(_,i)=>({id:i+1,busy:dBu[i],util:TOTAL>0?(dBu[i]/TOTAL)*100:0,sess:dTL[i].length}));
+
+  // Battery analytics — snapshot timeline for charting
+  // Sample at regular intervals: how many batteries ready vs charging
+  const battSnapshots=[];
+  const snapInterval=Math.max(5,Math.floor(TOTAL/100));
+  for(let t=0;t<=TOTAL;t+=snapInterval){
+    let ready=0,charging=0;
+    for(const b of battPool){
+      // At time t, was this battery ready or charging?
+      if(b.chargeStart<0){
+        // never used or already ready at start
+        ready++;
+      }else{
+        // Check from battLog: simplified — use readyAt
+        if(t<b.chargeStart)ready++;
+        else if(t>=b.readyAt)ready++;
+        else charging++;
+      }
+    }
+    // More accurate: re-simulate from battLog
+    battSnapshots.push({t,ready,charging});
+  }
+  // Better approach: build from battLog events
+  const battTimeline=[];
+  {
+    // Sort battLog by time
+    const sorted=[...battLog].sort((a,b)=>a.t-b.t);
+    let readyCount=totalBatteries,chargingCount=0;
+    let idx=0;
+    for(let t=0;t<=TOTAL;t+=snapInterval){
+      while(idx<sorted.length&&sorted[idx].t<=t){
+        const ev=sorted[idx];
+        if(ev.event==='given_to_truck'){readyCount--;} // taken from pool
+        else if(ev.event==='charge_start'){chargingCount++;}
+        else if(ev.event==='charge_done'){chargingCount--;readyCount++;}
+        idx++;
+      }
+      battTimeline.push({t,ready:Math.max(0,readyCount),charging:Math.max(0,chargingCount)});
+    }
+  }
+
+  return{trucks:T,totTrips:tTrips,totTon:tTon,totSS:tSS,cyc,ePT,usable,tE,tL,EFF,UA,
+    totProd:tProd,totST:tST,totSW:tSW,totBW:tBW,totLW:tLW,totDW:tDW,totIdle:tIdle,
+    totBT:tBT,totRT:tRT,totIdleE:tIE,totAvail:tA,tPC,qm,eE,eL,
+    sUtil:sU,lUtil:lU,dUtil:dU,swapTL:sTL,loaderTL:lTL,dumpTL:dTL,
+    days,DAY,TOTAL,brkPerDay:bpd,totalBatteries,
+    battLog,battTimeline,swapsDeniedNoBatt,totalBattWaitTime,
+    battChargeTime}
+}
+
+function optStagger(p){const cyc=(p.distEmpty/p.spdEmpty)*60+p.tLoad+(p.distLoaded/p.spdLoaded)*60+p.tDump;const mx=Math.ceil(cyc),st=Math.max(1,Math.floor(mx/15)),res=[];for(let s=0;s<=mx;s+=st){const r=runSim({...p,staggerMin:s},1);res.push({stagger:s,UA:r.UA,trips:r.totTrips,ton:r.totTon,lw:r.totLW,dw:r.totDW,sw:r.totSW,bw:r.totBW})}let bI=0;for(let i=1;i<res.length;i++)if(res[i].UA>res[bI].UA)bI=i;return{res,bI,bestStagger:res[bI].stagger}}
+
+function optSwapBatt(p){const res=[];const maxBatt=Math.min(p.totalTrucks*2,24);for(let nb=1;nb<=maxBatt;nb++){const s=runSim({...p,battPerStation:nb},1);res.push({n:nb,totalBatt:nb*p.numSwapStations,UA:s.UA,trips:s.totTrips,ton:s.totTon,wq:s.totSW/Math.max(1,s.totSS),bw:s.totBW,denied:s.swapsDeniedNoBatt,qm:s.qm})}let bI=0;for(let i=1;i<res.length;i++)if(res[i].UA>res[bI].UA)bI=i;let eI=0;for(let i=1;i<res.length;i++)if(res[i].UA-res[i-1].UA>0.3)eI=i;return{res,bI,eI}}
+
+function fleetIter(p,days){const mx=Math.min(p.totalTrucks+5,25);const battCounts=[4,8,12,16,Math.max(20,p.battPerStation*p.numSwapStations)].filter((v,i,a)=>a.indexOf(v)===i).sort((a,b)=>a-b);const data={};for(const tb of battCounts){data[tb]=[];const bps=Math.ceil(tb/Math.max(1,p.numSwapStations));for(let dt=1;dt<=mx;dt++){const r=runSim({...p,totalTrucks:dt,battPerStation:bps},days);data[tb].push({dt,trips:r.totTrips,ton:r.totTon,UA:r.UA})}}return{data,cc:battCounts,mx}}
+
+async function getAI(p,r,o,sg){try{const resp=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1800,messages:[{role:"user",content:`Konsultan tambang&fleet EV dgn SWAP BATTERY. 1TL=1DT,1Dump=1DT. SC06&18(${p.shiftChangeDur}m).Rest12&00(${p.restBreakDur}m). Idle battery ${p.idleConsKwMin}kW/m HANYA antri loader&dump(unit ON).SC/rest/antri swap=OFF no drain. SwapStation:${p.numSwapStations}unit,${p.battPerStation}batt/station,total${p.battPerStation*p.numSwapStations}batt,swap${p.tSwap}mnt/unit,chargeTime${p.tBattCharge}mnt(20-80%). Fleet:${p.totalTrucks}DT ${p.payload}t,bat${p.batteryCapacity}kWh,UA${r.UA.toFixed(1)}%,${r.totTon}t ${r.totTrips}trips,Lw${r.totLW.toFixed(0)}m,Dw${r.totDW.toFixed(0)}m,SwapW${r.totSW.toFixed(0)}m,BattW${r.totBW.toFixed(0)}m(tunggu batt blm ready),denied${r.swapsDeniedNoBatt}x,idleE${r.totIdleE.toFixed(1)}kWh,optBatt${o.res[o.bI].n}/station,stagger${sg.bestStagger}m. BattW=waktu tunggu krn semua batt masih charging, blm ada yg ready. JSON:{"executive_summary":"...","ua_assessment":{"score":"baik/cukup/kurang","detail":"..."},"bottleneck_analysis":[{"area":"...","severity":"tinggi/sedang/rendah","impact":"...","solution":"..."}],"swap_battery_recommendation":{"optimal_batt_per_station":0,"total_batteries":0,"charge_time_impact":"...","reasoning":"..."},"battery_availability_analysis":{"denied_count":0,"total_wait_minutes":"...","is_bottleneck":true,"recommendation":"..."},"stagger_recommendation":{"optimal_minutes":0,"vs_simultaneous":"..."},"idle_energy_impact":{"total_kwh":"...","context":"hanya antri loader&dump","recommendation":"..."},"break_impact":{"analysis":"...","recommendation":"..."},"productivity_insights":[{"metric":"...","current":"...","target":"...","gap":"...","action":"..."}],"fleet_optimization":{"current_efficiency":"...","potential_efficiency":"...","key_actions":["...","..."]},"risk_factors":[{"risk":"...","mitigation":"..."}],"cost_benefit":{"total_wait":"...","savings":"...","roi":"..."},"overall_score":0,"top_3_priorities":["...","...","..."]}`}]})});const d=await resp.json();const t=d.content?.map(b=>b.text||"").join("")||"";return JSON.parse(t.replace(/```json|```/g,"").trim())}catch{return null}}
+
+function Inp({label,unit,value,onChange,min=0,step=1}){return(<div style={{display:"flex",flexDirection:"column",gap:2}}><label style={{fontSize:10,color:C.dim,fontWeight:600}}>{label}</label><div style={{display:"flex",alignItems:"center",background:C.surface,borderRadius:6,border:`1px solid ${C.border}`,overflow:"hidden"}}><input type="number" value={value} min={min} step={step} onChange={e=>onChange(Number(e.target.value)||0)} style={{flex:1,background:"transparent",border:"none",color:C.white,padding:"6px 8px",fontSize:12,outline:"none",fontFamily:mono,width:"100%",minWidth:0}}/>{unit&&<span style={{padding:"0 7px",fontSize:9.5,color:C.cyanD,fontWeight:700,whiteSpace:"nowrap"}}>{unit}</span>}</div></div>)}
+
+function KPI({label,value,unit,color,icon,sub}){return(<div style={{background:C.card,borderRadius:10,padding:"11px 13px",border:`1px solid ${C.border}`,overflow:"hidden"}}><div style={{fontSize:9,color:C.dim,fontWeight:600,marginBottom:2}}>{icon} {label}</div><div style={{display:"flex",alignItems:"baseline",gap:3}}><span style={{fontSize:19,fontWeight:800,color:color||C.cyan,fontFamily:mono,lineHeight:1}}>{typeof value==="number"?value.toLocaleString("id-ID",{maximumFractionDigits:1}):value}</span>{unit&&<span style={{fontSize:9.5,color:C.dim}}>{unit}</span>}</div>{sub&&<div style={{fontSize:8.5,color:C.muted,marginTop:2}}>{sub}</div>}</div>)}
+
+function fmtT(m){const d=Math.floor(m/1440),h=(6+Math.floor((m%1440)/60))%24,mn=Math.round(m%60);return`${d>0?`D${d+1} `:""}${String(h).padStart(2,"0")}:${String(mn).padStart(2,"0")}`}
+
+function PP({value,onChange}){return(<div style={{display:"flex",gap:3}}>{[{d:1,l:"1 Hari"},{d:2,l:"2 Hari"},{d:7,l:"1 Minggu"},{d:30,l:"1 Bulan"}].map(({d,l})=>(<button key={d} onClick={()=>onChange(d)} style={{padding:"4px 9px",fontSize:9.5,fontWeight:700,background:value===d?C.cyan+"22":C.surface,color:value===d?C.cyan:C.dim,border:`1px solid ${value===d?C.cyan+"55":C.border}`,borderRadius:5,cursor:"pointer"}}>{l}</button>))}</div>)}
+
+function Gantt({trucks,eff,sh,days,swapTL,loaderTL,dumpTL,TOTAL}){const totalH=sh*days,step=days<=1?2:days<=2?4:days<=7?24:72,hrs=[];for(let h=0;h<=totalH;h+=step)hrs.push(h);const fH=h=>{const d=Math.floor(h/24),hr=(6+h%24)%24;return days<=2?`${d>0?`D${d+1} `:""}${String(hr).padStart(2,"0")}:00`:`D${d+1}`};const rh=days>7?7:days>2?11:15;return(<div style={{overflowX:"auto",overflowY:"auto",maxHeight:700}}><div style={{minWidth:days<=2?700:days<=7?850:1000}}><div style={{marginLeft:56,marginBottom:4,position:"relative",height:14}}>{hrs.map(h=>(<div key={h} style={{position:"absolute",left:`${(h/totalH)*100}%`,transform:"translateX(-50%)"}}><span style={{fontSize:days>7?7:8,color:C.muted,fontFamily:mono,fontWeight:600}}>{fH(h)}</span></div>))}</div><div style={{marginTop:2}}>{trucks.map(tr=>(<div key={tr.id} style={{display:"flex",alignItems:"center",gap:4,marginBottom:1}}><div style={{width:50,fontSize:9,color:C.dim,textAlign:"right",fontWeight:700,flexShrink:0,fontFamily:mono}}>DT-{String(tr.id).padStart(2,"0")}</div><div style={{flex:1,height:rh,background:C.surface,borderRadius:2,position:"relative",overflow:"hidden",border:`1px solid ${C.border}`}}>{days<=7&&hrs.map(h=>(<div key={h} style={{position:"absolute",left:`${(h/totalH)*100}%`,width:1,height:"100%",background:C.border,opacity:.3}}/>))}{tr.log.map((en,i)=>{const l=(en.t0/TOTAL)*100,w=(en.d/TOTAL)*100,s=STEP[en.e]||STEP.idle;return(<div key={i} title={`${s.l}:${en.d.toFixed(1)}m(${fmtT(en.t0)})`} style={{position:"absolute",left:`${l}%`,width:`${Math.max(w,.08)}%`,height:"100%",background:s.c,opacity:.8}}/>)})}</div><div style={{width:32,fontSize:8,color:C.dim,fontFamily:mono,flexShrink:0,textAlign:"right"}}>{tr.trips}t</div></div>))}</div>
+{[{tl:loaderTL,lb:"TL",cl:C.purple},{tl:dumpTL,lb:"Dump",cl:"#ff6e40"},{tl:swapTL,lb:"Swap",cl:"#ffd740"}].map(({tl,lb,cl})=>(<div key={lb} style={{marginTop:5,borderTop:`1px solid ${C.border}`,paddingTop:3}}><div style={{fontSize:8,color:cl,fontWeight:700,marginBottom:2,marginLeft:56}}>{lb}</div>{tl.map((sl,ri)=>(<div key={ri} style={{display:"flex",alignItems:"center",gap:4,marginBottom:1}}><div style={{width:50,fontSize:7,color:cl,textAlign:"right",fontWeight:700,flexShrink:0,fontFamily:mono}}>{lb}-{ri+1}</div><div style={{flex:1,height:7,background:C.surface,borderRadius:2,position:"relative",overflow:"hidden",border:`1px solid ${C.border}`}}>{sl.map((s,j)=>{const l=(s.start/TOTAL)*100,w=((s.end-s.start)/TOTAL)*100;return(<div key={j} title={`DT-${s.truck}`} style={{position:"absolute",left:`${l}%`,width:`${Math.max(w,.08)}%`,height:"100%",background:cl,opacity:.7}}/>)})}</div><div style={{width:28,fontSize:7,color:C.muted,fontFamily:mono,textAlign:"right"}}>{sl.length}x</div></div>))}</div>))}
+<div style={{display:"flex",flexWrap:"wrap",gap:5,marginTop:6,marginLeft:56}}>{Object.entries(STEP).map(([k,v])=>(<div key={k} style={{display:"flex",alignItems:"center",gap:3,fontSize:7.5,color:C.dim}}><div style={{width:7,height:7,borderRadius:2,background:v.c,opacity:.8}}/>{v.l}</div>))}</div></div></div>)}
+
+function CC({draw,w=620,h=250}){const ref=useRef(null);useEffect(()=>{const cv=ref.current;if(!cv)return;const ctx=cv.getContext("2d");const dp=2;cv.width=w*dp;cv.height=h*dp;ctx.scale(dp,dp);ctx.clearRect(0,0,w,h);draw(ctx,w,h)},[draw]);return <canvas ref={ref} style={{width:"100%",height:"auto",maxWidth:w}}/>}
+
+function UABar({r}){const t=r.totAvail;if(t<=0)return null;const sg=[{l:"Produktif",v:r.totProd,c:C.green},{l:"Antri Loader⚡",v:r.totLW,c:C.amber},{l:"Antri Dump⚡",v:r.totDW,c:"#ff6e40"},{l:"Swap Battery",v:r.totST,c:"#ffd740"},{l:"Antri Swap",v:r.totSW,c:C.red},{l:"Tunggu Batt",v:r.totBW,c:"#e040fb"},{l:"Shift Change",v:r.totBT,c:"#5c6bc0"},{l:"Istirahat",v:r.totRT,c:C.teal},{l:"Idle",v:r.totIdle,c:C.muted}];return(<div><div style={{display:"flex",height:22,borderRadius:6,overflow:"hidden",border:`1px solid ${C.border}`}}>{sg.map(s=>{const p=(s.v/t)*100;if(p<.15)return null;return(<div key={s.l} title={`${s.l}:${p.toFixed(1)}%`} style={{width:`${p}%`,background:s.c,opacity:.75,minWidth:p>1?2:0}}/>)})}</div><div style={{display:"flex",flexWrap:"wrap",gap:5,marginTop:4}}>{sg.map(s=>(<div key={s.l} style={{display:"flex",alignItems:"center",gap:3,fontSize:8.5,color:C.dim}}><div style={{width:7,height:7,borderRadius:2,background:s.c,opacity:.75}}/>{s.l}:<strong style={{color:s.c}}>{((s.v/t)*100).toFixed(1)}%</strong></div>))}</div></div>)}
+
+function AIPanel({ai,loading,simulate}){if(loading)return(<div style={{textAlign:"center",padding:30}}><div style={{fontSize:28,animation:"pulse 1.5s infinite"}}>🤖</div><div style={{color:C.cyan,fontWeight:700,marginTop:8}}>Analyzing...</div></div>);if(!ai)return(<div style={{textAlign:"center",padding:20}}><button onClick={simulate} style={{padding:"8px 16px",fontSize:11,fontWeight:700,color:C.bg,background:`linear-gradient(135deg,${C.cyan},${C.green})`,border:"none",borderRadius:6,cursor:"pointer"}}>🤖 Run AI</button></div>);const sc=ai.overall_score>=80?C.green:ai.overall_score>=60?C.amber:C.red,sv={tinggi:C.red,sedang:C.amber,rendah:C.green},bx={background:C.surface,borderRadius:8,padding:11,border:`1px solid ${C.border}`,marginBottom:7};return(<div style={{display:"flex",flexDirection:"column",gap:7}}><div style={{display:"grid",gridTemplateColumns:"90px 1fr",gap:7}}><div style={{...bx,marginBottom:0,textAlign:"center",borderColor:sc+"55"}}><div style={{fontSize:34,fontWeight:900,color:sc,fontFamily:mono}}>{ai.overall_score}</div><div style={{fontSize:8,color:C.dim}}>SKOR</div></div><div style={{...bx,marginBottom:0}}><div style={{fontSize:8.5,color:C.cyan,fontWeight:700,marginBottom:3}}>SUMMARY</div><div style={{fontSize:10.5,color:C.white,lineHeight:1.6}}>{ai.executive_summary}</div></div></div><div style={bx}><div style={{fontSize:8.5,color:C.cyan,fontWeight:700,marginBottom:5}}>🎯 TOP 3</div>{ai.top_3_priorities.map((p,i)=>(<div key={i} style={{display:"flex",gap:6,marginBottom:4}}><div style={{width:18,height:18,borderRadius:4,background:`linear-gradient(135deg,${C.cyan},${C.green})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:900,color:C.bg,flexShrink:0}}>{i+1}</div><div style={{fontSize:10,color:C.white,lineHeight:1.5}}>{p}</div></div>))}</div><div style={bx}><div style={{fontSize:8.5,color:C.cyan,fontWeight:700,marginBottom:5}}>BOTTLENECK</div>{ai.bottleneck_analysis.map((b,i)=>(<div key={i} style={{marginBottom:5,padding:7,borderRadius:5,background:C.card,border:`1px solid ${C.border}`}}><div style={{display:"flex",justifyContent:"space-between"}}><span style={{fontSize:10,fontWeight:700,color:C.white}}>{b.area}</span><span style={{padding:"1px 5px",borderRadius:3,fontSize:7.5,fontWeight:700,background:(sv[b.severity]||C.amber)+"22",color:sv[b.severity]||C.amber}}>{b.severity}</span></div><div style={{fontSize:9,color:C.dim,marginTop:2}}>💥 {b.impact}</div><div style={{fontSize:9,color:C.green,marginTop:1}}>✅ {b.solution}</div></div>))}</div>
+{ai.battery_availability_analysis&&<div style={{...bx,borderColor:"#e040fb55"}}><div style={{fontSize:8.5,color:"#e040fb",fontWeight:700,marginBottom:3}}>⏳ BATTERY AVAILABILITY</div><div style={{fontSize:10,color:C.dim,lineHeight:1.6}}>Denied: <strong style={{color:"#e040fb"}}>{ai.battery_availability_analysis.denied_count}x</strong> · Wait: <strong style={{color:"#e040fb"}}>{ai.battery_availability_analysis.total_wait_minutes}</strong> · Bottleneck: <strong style={{color:ai.battery_availability_analysis.is_bottleneck?C.red:C.green}}>{ai.battery_availability_analysis.is_bottleneck?"YA":"TIDAK"}</strong><br/>{ai.battery_availability_analysis.recommendation}</div></div>}
+{ai.swap_battery_recommendation&&<div style={{...bx,borderColor:"#ffd74055"}}><div style={{fontSize:8.5,color:"#ffd740",fontWeight:700,marginBottom:3}}>🔋 SWAP BATTERY</div><div style={{fontSize:10,color:C.dim,lineHeight:1.6}}>Optimal: <strong style={{color:"#ffd740"}}>{ai.swap_battery_recommendation.optimal_batt_per_station} batt/station ({ai.swap_battery_recommendation.total_batteries} total)</strong> · Charge impact: {ai.swap_battery_recommendation.charge_time_impact} · {ai.swap_battery_recommendation.reasoning}</div></div>}
+{ai.idle_energy_impact&&<div style={{...bx,borderColor:C.red+"33"}}><div style={{fontSize:8.5,color:C.red,fontWeight:700,marginBottom:3}}>🔋 IDLE ENERGY</div><div style={{fontSize:10,color:C.dim,lineHeight:1.6}}>Total: <strong style={{color:C.red}}>{ai.idle_energy_impact.total_kwh}</strong> · {ai.idle_energy_impact.recommendation}</div></div>}
+{ai.break_impact&&<div style={{...bx,borderColor:"#5c6bc055"}}><div style={{fontSize:8.5,color:"#5c6bc0",fontWeight:700,marginBottom:3}}>⏸️ BREAK IMPACT</div><div style={{fontSize:10,color:C.dim,lineHeight:1.6}}>{ai.break_impact.analysis}</div></div>}</div>)}
+
+function Sec({title,children}){return(<div><div style={{fontSize:9,color:C.cyan,fontWeight:800,marginBottom:6,letterSpacing:1,textTransform:"uppercase"}}>{title}</div>{children}</div>)}
+
+/* ================================================================
+   AUTOSAVE — persist parameter set `p` ke localStorage
+   Key: ev_sim_p_v1. Disimpan otomatis (debounced) setiap parameter berubah.
+   ================================================================ */
+const LS_EV="ev_sim_p_v1";
+function loadSavedEV(){
+  try{
+    const raw=localStorage.getItem(LS_EV);
+    if(!raw)return DEF;
+    const s=JSON.parse(raw);
+    /* Merge dengan DEF untuk memastikan semua key ada (handles version drift). */
+    return{...DEF,...s};
+  }catch(e){return DEF}
+}
+function clearSavedEV(){try{localStorage.removeItem(LS_EV)}catch(e){}}
+
+function App(){
+  const[p,setP]=useState(loadSavedEV),[r,setR]=useState(null),[opt,setOpt]=useState(null),[sg,setSg]=useState(null),[tab,setTab]=useState("kpi"),[dD,setDD]=useState(1),[dR,setDR]=useState(null),[gD,setGD]=useState(1),[gR,setGR]=useState(null),[fD,setFD]=useState(1),[fData,setFData]=useState(null),[showIn,setSI]=useState(true),[ai,setAi]=useState(null),[aiL,setAiL]=useState(false),[simR,setSimR]=useState(false),[saveTs,setSaveTs]=useState(0);
+  const up=useCallback((k,v)=>setP(pp=>({...pp,[k]:v})),[]);
+
+  /* Autosave: setiap `p` berubah, debounce 400ms lalu simpan ke localStorage.
+     Indicator `saveTs` di-update supaya UI bisa show "● Saved HH:MM:SS". */
+  useEffect(()=>{
+    const t=setTimeout(()=>{
+      try{localStorage.setItem(LS_EV,JSON.stringify(p));setSaveTs(Date.now())}catch(e){}
+    },400);
+    return()=>clearTimeout(t);
+  },[p]);
+
+  const resetParams=useCallback(()=>{
+    if(!confirm("Reset semua parameter ke default? Autosave akan dihapus."))return;
+    clearSavedEV();
+    setP(DEF);
+    setSaveTs(0);
+  },[]);
+
+  const simulate=useCallback(async()=>{setSimR(true);setAi(null);await new Promise(d=>setTimeout(d,30));const res=runSim(p,1),o=optSwapBatt(p),s=optStagger(p);setR(res);setOpt(o);setSg(s);setDR(res);setDD(1);setGR(res);setGD(1);setFData(fleetIter(p,1));setFD(1);setTab("kpi");setAiL(true);try{const a=await getAI(p,res,o,s);setAi(a)}catch{}setAiL(false);setSimR(false)},[p]);
+  const chD=useCallback(d=>{setDD(d);setDR(runSim(p,d))},[p]),chG=useCallback(d=>{setGD(d);setGR(runSim(p,d))},[p]),chF=useCallback(d=>{setFD(d);setFData(fleetIter(p,d))},[p]);
+
+  /* Initial sim on mount — uses current `p` (which = saved params from localStorage
+     if present, else DEF). */
+  useEffect(()=>{const res=runSim(p,1),o=optSwapBatt(p),s=optStagger(p);setR(res);setOpt(o);setSg(s);setDR(res);setGR(res);setFData(fleetIter(p,1))},[]);
+
+  const sec={background:C.card,borderRadius:12,padding:13,border:`1px solid ${C.border}`,marginBottom:10},g3={display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(145px,1fr))",gap:6};
+  const tabs=[{id:"kpi",l:"📊 Dashboard"},{id:"gantt",l:"📅 Gantt"},{id:"battery",l:"🔋 Battery"},{id:"stagger",l:"🔀 Stagger"},{id:"swap",l:"⚡ Swap Opt"},{id:"fleet",l:"📈 Fleet"},{id:"trucks",l:"🚛 Trucks"},{id:"ai",l:"🤖 AI"}];
+
+  // Draw Swap Battery optimization chart
+  const dC=useCallback((ctx,W,H)=>{if(!opt)return;const pad={t:28,r:20,b:38,l:50},cW=W-pad.l-pad.r,cH=H-pad.t-pad.b,d=opt.res,mT=Math.max(...d.map(x=>x.ton),1);ctx.strokeStyle=C.border;ctx.lineWidth=.5;for(let i=0;i<=5;i++){const y=pad.t+(cH/5)*i;ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(W-pad.r,y);ctx.stroke()}const bW=Math.min(24,cW/d.length-4);d.forEach((x,i)=>{const xp=pad.l+(i/d.length)*cW+(cW/d.length-bW)/2,h=(x.ton/mT)*cH*.85,y=pad.t+cH-h,ib=i===opt.bI;ctx.fillStyle=ib?C.green+"44":C.blue+"22";ctx.strokeStyle=ib?C.green:C.blue+"66";ctx.lineWidth=ib?2:1;ctx.beginPath();ctx.roundRect(xp,y,bW,h,[4,4,0,0]);ctx.fill();ctx.stroke()});ctx.beginPath();ctx.strokeStyle=C.cyan;ctx.lineWidth=2.5;d.forEach((x,i)=>{const xp=pad.l+(i/d.length)*cW+cW/d.length/2,y=pad.t+cH-(x.UA/100)*cH;i===0?ctx.moveTo(xp,y):ctx.lineTo(xp,y)});ctx.stroke();d.forEach((x,i)=>{const xp=pad.l+(i/d.length)*cW+cW/d.length/2,y=pad.t+cH-(x.UA/100)*cH,ib=i===opt.bI;ctx.beginPath();ctx.arc(xp,y,ib?6:3,0,Math.PI*2);ctx.fillStyle=ib?C.cyan:C.cyanD;ctx.fill();if(ib){ctx.fillStyle=C.cyan;ctx.font="bold 10px monospace";ctx.textAlign="center";ctx.fillText(`${x.UA.toFixed(1)}%★`,xp,y-10)}});
+  // Draw denied line (secondary axis)
+  const mD=Math.max(...d.map(x=>x.denied),1);if(mD>0){ctx.beginPath();ctx.strokeStyle="#e040fb";ctx.lineWidth=1.5;ctx.setLineDash([4,3]);d.forEach((x,i)=>{const xp=pad.l+(i/d.length)*cW+cW/d.length/2,y=pad.t+cH-(x.denied/mD)*cH*.7;i===0?ctx.moveTo(xp,y):ctx.lineTo(xp,y)});ctx.stroke();ctx.setLineDash([])}
+  ctx.fillStyle=C.dim;ctx.font="9px monospace";ctx.textAlign="center";d.forEach((x,i)=>ctx.fillText(`${x.n}`,pad.l+(i/d.length)*cW+cW/d.length/2,H-pad.b+14));ctx.fillText("Batt/Station",W/2,H-4)},[opt]);
+
+  const dS=useCallback((ctx,W,H)=>{if(!sg)return;const res=sg.res,bI=sg.bI,pad={t:24,r:16,b:34,l:46},cW=W-pad.l-pad.r,cH=H-pad.t-pad.b,mUA=Math.max(...res.map(r=>r.UA),1),mS=res[res.length-1].stagger||1;ctx.strokeStyle=C.border;ctx.lineWidth=.5;for(let i=0;i<=4;i++){const y=pad.t+(cH/4)*i;ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(W-pad.r,y);ctx.stroke()}ctx.beginPath();ctx.strokeStyle=C.cyan;ctx.lineWidth=2;res.forEach((r,i)=>{const x=pad.l+(r.stagger/mS)*cW,y=pad.t+cH-(r.UA/mUA)*cH;i===0?ctx.moveTo(x,y):ctx.lineTo(x,y)});ctx.stroke();res.forEach((r,i)=>{const x=pad.l+(r.stagger/mS)*cW,y=pad.t+cH-(r.UA/mUA)*cH,ib=i===bI;ctx.beginPath();ctx.arc(x,y,ib?5:2.5,0,Math.PI*2);ctx.fillStyle=ib?C.green:C.cyanD;ctx.fill();if(ib){ctx.fillStyle=C.green;ctx.font="bold 10px monospace";ctx.textAlign="center";ctx.fillText(`${r.UA.toFixed(1)}%@${r.stagger}m`,x,y-10)}});ctx.fillStyle=C.dim;ctx.font="9px monospace";ctx.textAlign="center";ctx.fillText("Stagger(mnt)",W/2,H-4)},[sg]);
+
+  // Battery timeline chart
+  const dBatt=useCallback((ctx,W,H)=>{if(!dR||!dR.battTimeline||dR.battTimeline.length<2)return;const tl=dR.battTimeline,pad={t:24,r:20,b:36,l:46},cW=W-pad.l-pad.r,cH=H-pad.t-pad.b;const mB=dR.totalBatteries;ctx.strokeStyle=C.border;ctx.lineWidth=.5;for(let i=0;i<=4;i++){const y=pad.t+(cH/4)*i;ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(W-pad.r,y);ctx.stroke();ctx.fillStyle=C.dim;ctx.font="8px monospace";ctx.textAlign="right";ctx.fillText(`${Math.round(mB*(4-i)/4)}`,pad.l-4,y+3)}
+  // Fill area: charging (bottom, red) + ready (top, green)
+  ctx.beginPath();ctx.moveTo(pad.l,pad.t+cH);tl.forEach((s,i)=>{const x=pad.l+(i/(tl.length-1))*cW,y=pad.t+cH-(s.charging/mB)*cH;ctx.lineTo(x,y)});ctx.lineTo(pad.l+cW,pad.t+cH);ctx.closePath();ctx.fillStyle=C.red+"33";ctx.fill();
+  ctx.beginPath();tl.forEach((s,i)=>{const x=pad.l+(i/(tl.length-1))*cW,y=pad.t+cH-(s.charging/mB)*cH;i===0?ctx.moveTo(x,y):ctx.lineTo(x,y)});ctx.strokeStyle=C.red;ctx.lineWidth=1.5;ctx.stroke();
+  // Ready area
+  ctx.beginPath();ctx.moveTo(pad.l,pad.t+cH);tl.forEach((s,i)=>{const x=pad.l+(i/(tl.length-1))*cW,y=pad.t+cH-((s.ready+s.charging)/mB)*cH;ctx.lineTo(x,y)});ctx.lineTo(pad.l+cW,pad.t+cH);ctx.closePath();ctx.fillStyle=C.green+"22";ctx.fill();
+  ctx.beginPath();tl.forEach((s,i)=>{const x=pad.l+(i/(tl.length-1))*cW,y=pad.t+cH-((s.ready+s.charging)/mB)*cH;i===0?ctx.moveTo(x,y):ctx.lineTo(x,y)});ctx.strokeStyle=C.green;ctx.lineWidth=1.5;ctx.stroke();
+  // Zero line highlight — when ready=0, highlight danger
+  tl.forEach((s,i)=>{if(s.ready<=0){const x=pad.l+(i/(tl.length-1))*cW;ctx.fillStyle=C.red+"55";ctx.fillRect(x-1,pad.t,3,cH)}});
+  // X axis labels
+  ctx.fillStyle=C.dim;ctx.font="8px monospace";ctx.textAlign="center";const totalMin=tl[tl.length-1].t;const step=Math.max(1,Math.floor(tl.length/8));for(let i=0;i<tl.length;i+=step){const x=pad.l+(i/(tl.length-1))*cW;ctx.fillText(fmtT(tl[i].t),x,H-pad.b+12)}
+  ctx.fillText("Waktu",W/2,H-4);
+  // Legend
+  const lx=pad.l+8,ly=pad.t+4;
+  [{l:"Ready",c:C.green},{l:"Charging",c:C.red},{l:"Kosong!",c:C.red+"55"}].forEach((it,i)=>{ctx.fillStyle=it.c;ctx.fillRect(lx+i*70,ly,10,3);ctx.fillStyle=C.dim;ctx.font="8px monospace";ctx.textAlign="left";ctx.fillText(it.l,lx+i*70+13,ly+4)})
+  },[dR]);
+
+  const dF=useCallback((ctx,W,H)=>{if(!fData)return;const{data,cc,mx}=fData,cols=[C.cyan,C.green,C.amber,C.red,C.purple],pad={t:30,r:20,b:42,l:50},cW=W-pad.l-pad.r,cH=H-pad.t-pad.b;let mT=0;for(const nc of cc)for(const d of data[nc])if(d.trips>mT)mT=d.trips;if(!mT)mT=1;ctx.strokeStyle=C.border;ctx.lineWidth=.5;for(let i=0;i<=5;i++){const y=pad.t+(cH/5)*i;ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(W-pad.r,y);ctx.stroke()}cc.forEach((nc,ci)=>{const col=cols[ci%cols.length],pts=data[nc];ctx.beginPath();ctx.strokeStyle=col;ctx.lineWidth=2;pts.forEach((d,i)=>{const x=pad.l+(d.dt/mx)*cW,y=pad.t+cH-(d.trips/mT)*cH;i===0?ctx.moveTo(x,y):ctx.lineTo(x,y)});ctx.stroke()});ctx.fillStyle=C.dim;ctx.font="9px monospace";ctx.textAlign="center";for(let dt=1;dt<=mx;dt+=Math.max(1,Math.floor(mx/10)))ctx.fillText(`${dt}`,pad.l+(dt/mx)*cW,H-pad.b+14);ctx.fillText("Jumlah DT",W/2,H-4);ctx.textAlign="right";for(let i=0;i<=5;i++)ctx.fillText(`${Math.round((mT/5)*(5-i))}`,pad.l-4,pad.t+(cH/5)*i+3);ctx.save();ctx.translate(12,H/2);ctx.rotate(-Math.PI/2);ctx.textAlign="center";ctx.fillText("Ritase",0,0);ctx.restore();const lx=pad.l+8,ly=pad.t+6;cc.forEach((nc,ci)=>{const col=cols[ci%cols.length];ctx.fillStyle=col;ctx.fillRect(lx,ly+ci*13,10,3);ctx.fillStyle=C.dim;ctx.font="8px monospace";ctx.textAlign="left";ctx.fillText(`${nc} batt`,lx+14,ly+ci*13+4)})},[fData]);
+
+  return(<div style={{minHeight:"100vh",background:C.bg,color:C.white,fontFamily:"'Segoe UI',system-ui,sans-serif",padding:"12px 10px",maxWidth:1100,margin:"0 auto"}}>
+    <div style={{textAlign:"center",marginBottom:14}}>
+      <div style={{fontSize:9,color:C.cyanD,fontWeight:700,letterSpacing:3,textTransform:"uppercase"}}>Mining Fleet Intelligence</div>
+      <h1 style={{fontSize:22,fontWeight:900,margin:"4px 0",background:`linear-gradient(135deg,${C.cyan},${C.green})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>EV Hauling Simulator v2.1</h1>
+      <div style={{display:"inline-flex",alignItems:"center",gap:5,padding:"3px 10px",borderRadius:12,background:"#ffd74018",border:"1px solid #ffd74033",marginTop:4}}><span style={{fontSize:11}}>🔋</span><span style={{fontSize:10,fontWeight:700,color:"#ffd740"}}>SWAP BATTERY + CHARGE CYCLE</span></div>
+      <p style={{color:C.dim,fontSize:10,marginTop:4}}>©2026 Ir. Fransiscus Saferius S.T.</p>
+      {/* Autosave status + reset — parameter tersimpan otomatis ke browser localStorage */}
+      <div style={{display:"inline-flex",alignItems:"center",gap:8,marginTop:6,padding:"4px 10px",borderRadius:6,background:C.surface,border:`1px solid ${C.border}`}}>
+        <span style={{fontSize:10,fontFamily:mono,color:saveTs?C.green:C.dim,fontWeight:700}} title="Semua parameter tersimpan otomatis di browser">
+          {saveTs
+            ? `● Saved ${new Date(saveTs).toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}`
+            : '● Autosave ready'}
+        </span>
+        <button onClick={resetParams} style={{padding:"2px 8px",fontSize:9.5,fontWeight:700,background:"transparent",color:C.red,border:`1px solid ${C.red}55`,borderRadius:4,cursor:"pointer"}} title="Reset semua parameter ke default & hapus autosave">↺ Reset</button>
+      </div>
+    </div>
+
+    <div style={{background:C.amber+"11",border:`1px solid ${C.amber}33`,borderRadius:6,padding:"6px 10px",marginBottom:10,fontSize:9,color:C.amber,lineHeight:1.6}}>
+      <strong>Constraints:</strong> 1TL=1DT · 1Dump=1DT · SC 06&18:00 · Rest 12&00:00 · <strong style={{color:"#ffd740"}}>Swap Battery</strong> · Baterai habis di-<strong style={{color:C.red}}>charge {p.tBattCharge}m</strong> (20→80%) · <strong style={{color:C.red}}>Battery drain HANYA antri loader & dump</strong>
+    </div>
+
+    <div style={sec}><div onClick={()=>setSI(!showIn)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}}><h2 style={{fontSize:12,fontWeight:800,margin:0,color:C.cyan}}>📋 Input</h2><span style={{color:C.dim,transform:showIn?"rotate(180deg)":"none",transition:"transform .2s"}}>▾</span></div>
+    {showIn&&(<div style={{marginTop:10,display:"flex",flexDirection:"column",gap:12}}>
+      <Sec title="1. FLEET"><div style={g3}><Inp label="Jumlah Truck" unit="unit" value={p.totalTrucks} onChange={v=>up("totalTrucks",v)} min={1}/><Inp label="Operasi" unit="jam" value={p.shiftH} onChange={v=>up("shiftH",v)} min={1}/><Inp label="PA" unit="%" value={p.paUnit} onChange={v=>up("paUnit",v)}/><Inp label="Stagger" unit="mnt" value={p.staggerMin} onChange={v=>up("staggerMin",v)} min={0}/></div></Sec>
+      <Sec title="2. EV"><div style={g3}><Inp label="Payload" unit="ton" value={p.payload} onChange={v=>up("payload",v)}/><Inp label="Baterai" unit="kWh" value={p.batteryCapacity} onChange={v=>up("batteryCapacity",v)}/><Inp label="Kons.K" unit="kWh/km" value={p.consEmpty} onChange={v=>up("consEmpty",v)} step={0.1}/><Inp label="Kons.M" unit="kWh/km" value={p.consLoaded} onChange={v=>up("consLoaded",v)} step={0.1}/><Inp label="Speed K" unit="km/j" value={p.spdEmpty} onChange={v=>up("spdEmpty",v)}/><Inp label="Speed M" unit="km/j" value={p.spdLoaded} onChange={v=>up("spdLoaded",v)}/><Inp label="SOC Min" unit="%" value={p.socMin} onChange={v=>up("socMin",v)}/><Inp label="SOC Max" unit="%" value={p.socMax} onChange={v=>up("socMax",v)}/></div></Sec>
+      <Sec title="3. JARAK"><div style={g3}><Inp label="Kosong" unit="km" value={p.distEmpty} onChange={v=>up("distEmpty",v)} step={0.5}/><Inp label="Muatan" unit="km" value={p.distLoaded} onChange={v=>up("distLoaded",v)} step={0.5}/></div></Sec>
+      <Sec title="4. RESOURCES"><div style={g3}><Inp label="Loader" unit="unit" value={p.numLoaders} onChange={v=>up("numLoaders",v)} min={1}/><Inp label="Loading" unit="mnt" value={p.tLoad} onChange={v=>up("tLoad",v)}/><Inp label="Antri Loader" unit="mnt" value={p.tAntriLoader||0} onChange={v=>up("tAntriLoader",v)} min={0} step={0.5}/><Inp label="Dump" unit="unit" value={p.numDumps} onChange={v=>up("numDumps",v)} min={1}/><Inp label="Dump T" unit="mnt" value={p.tDump} onChange={v=>up("tDump",v)}/><Inp label="Antri Dumping" unit="mnt" value={p.tAntriDump||0} onChange={v=>up("tAntriDump",v)} min={0} step={0.5}/></div></Sec>
+
+      <Sec title="5. SWAP BATTERY 🔋">
+        <div style={g3}>
+          <Inp label="Swap Station" unit="unit" value={p.numSwapStations} onChange={v=>up("numSwapStations",v)} min={1}/>
+          <Inp label="Waktu Swap" unit="mnt/unit" value={p.tSwap} onChange={v=>up("tSwap",v)} min={1}/>
+          <Inp label="Battery/Station" unit="batt" value={p.battPerStation} onChange={v=>up("battPerStation",v)} min={1}/>
+          <Inp label="Charge Time" unit="mnt" value={p.tBattCharge} onChange={v=>up("tBattCharge",v)} min={1} step={5}/>
+        </div>
+        <div style={{fontSize:9,color:C.muted,marginTop:4,lineHeight:1.7}}>
+          Total battery: <strong style={{color:"#ffd740"}}>{p.battPerStation*p.numSwapStations}</strong> unit ·
+          Swap = tukar baterai habis ↔ baterai penuh (<strong style={{color:C.cyan}}>{p.tSwap} mnt</strong>) ·
+          Baterai habis di-charge <strong style={{color:C.red}}>{p.tBattCharge} mnt</strong> (SOC {p.socMin}%→{p.socMax}%) ·
+          Jika semua baterai masih charging → <strong style={{color:"#e040fb"}}>DT harus tunggu</strong>
+        </div>
+      </Sec>
+
+      <Sec title="6. SHIFT & ISTIRAHAT"><div style={g3}><Inp label="Shift Change" unit="mnt" value={p.shiftChangeDur} onChange={v=>up("shiftChangeDur",v)} min={0}/><Inp label="Istirahat" unit="mnt" value={p.restBreakDur} onChange={v=>up("restBreakDur",v)} min={0}/></div></Sec>
+      <Sec title="7. IDLE BATTERY (antri loader & dump saja)"><div style={g3}><Inp label="Idle Cons" unit="kW/mnt" value={p.idleConsKwMin} onChange={v=>up("idleConsKwMin",v)} min={0} step={0.01}/></div><div style={{fontSize:9,color:C.muted,marginTop:4,lineHeight:1.5}}>Battery drain <strong style={{color:C.red}}>HANYA</strong> saat antri loader & dump (unit ON). SC, istirahat, antri swap → unit OFF, <strong style={{color:C.green}}>no drain</strong>.</div></Sec>
+
+      <button onClick={simulate} disabled={simR} style={{padding:"11px 20px",fontSize:12,fontWeight:800,color:C.bg,background:simR?"#555":`linear-gradient(135deg,${C.cyan},${C.green})`,border:"none",borderRadius:8,cursor:simR?"wait":"pointer"}}>{simR?"🤖 Running...":"▶ SIMULASI + AI"}</button>
+    </div>)}</div>
+
+    {r&&opt&&sg&&(<React.Fragment>
+      <div style={{display:"flex",gap:2,marginBottom:8,flexWrap:"wrap"}}>{tabs.map(t=>(<button key={t.id} onClick={()=>setTab(t.id)} style={{padding:"5px 10px",fontSize:9.5,fontWeight:700,background:tab===t.id?C.cyan+"1a":C.card,color:tab===t.id?C.cyan:C.dim,border:`1px solid ${tab===t.id?C.cyan+"55":C.border}`,borderRadius:6,cursor:"pointer",whiteSpace:"nowrap",position:"relative"}}>{t.l}{t.id==="ai"&&aiL&&<span style={{position:"absolute",top:-2,right:-2,width:6,height:6,borderRadius:3,background:C.amber,animation:"pulse 1s infinite"}}/>}{t.id==="ai"&&ai&&!aiL&&<span style={{position:"absolute",top:-2,right:-2,width:6,height:6,borderRadius:3,background:C.green}}/>}{t.id==="battery"&&r.swapsDeniedNoBatt>0&&<span style={{position:"absolute",top:-2,right:-2,width:6,height:6,borderRadius:3,background:C.red,animation:"pulse 1s infinite"}}/>}</button>))}</div>
+
+      {tab==="kpi"&&dR&&(<div>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}><h3 style={{fontSize:12,fontWeight:800,color:C.cyan,margin:0}}>📊 Dashboard</h3><PP value={dD} onChange={chD}/></div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(120px,1fr))",gap:5,marginBottom:10}}>
+          <KPI label="UA" value={dR.UA.toFixed(1)} unit="%" color={dR.UA>70?C.green:dR.UA>50?C.amber:C.red} icon="📈"/>
+          <KPI label="Produksi" value={dR.totTon} unit="ton" color={C.green} icon="🪨" sub={`${dD}d · aktual (×PA/UA)`}/>
+          {/* Productivity DT — THEORETICAL capacity per DT per hour.
+              Formula: payload × ritase/jam = payload × (60 / cycle_time_minutes)
+              Cycle = tHaulEmpty + tLoad + tHaulLoaded + tDump (menit).
+              NOT affected by PA/UA — pure cycle capacity. Produksi aktual yang kena PA/UA. */}
+          <KPI label="Prod/DT" value={(p.payload*(60/Math.max(1,dR.cyc))).toFixed(1)} unit="ton/jam/DT" color={C.green} icon="🚛" sub="teoritis · payload × ritase"/>
+          <KPI label="Trip/DT" value={(dR.totTrips/Math.max(1,p.totalTrucks)).toFixed(1)} unit="x" color={C.cyan} icon="🔄" sub={`per DT · ${dD}d`}/>
+          <KPI label="Trips" value={dR.totTrips} unit="x" color={C.cyan} icon="🔄"/>
+          <KPI label="Cycle" value={dR.cyc.toFixed(1)} unit="m" color={C.blue} icon="⏱️"/>
+          <KPI label="Trip/Swap" value={dR.tPC} unit="x" color={C.purple} icon="🔋"/>
+          <KPI label="Total Batt" value={dR.totalBatteries} unit="unit" color={"#ffd740"} icon="🔋" sub={`charge ${p.tBattCharge}m`}/>
+          <KPI label="Batt Denied" value={dR.swapsDeniedNoBatt} unit="x" color={dR.swapsDeniedNoBatt>0?C.red:C.green} icon="⏳" sub={dR.swapsDeniedNoBatt>0?"ada antrian!":"lancar"}/>
+          <KPI label="Batt Wait" value={dR.totBW.toFixed(0)} unit="m" color={dR.totBW>10?"#e040fb":C.green} icon="⏳" sub="tunggu charging"/>
+          <KPI label="Idle E⚡" value={dR.totIdleE.toFixed(1)} unit="kWh" color={C.red} icon="🔌" sub="loader+dump"/>
+          <KPI label="Opt Batt" value={opt.res[opt.bI].n} unit="/stn" color={"#ffd740"} icon="🔋"/>
+          <KPI label="Stagger" value={sg.bestStagger} unit="m" color={C.green} icon="🔀"/>
+        </div>
+
+        {dR.swapsDeniedNoBatt>0&&(<div style={{background:"#e040fb11",border:"1px solid #e040fb33",borderRadius:8,padding:10,marginBottom:10}}>
+          <div style={{fontSize:10,fontWeight:800,color:"#e040fb",marginBottom:4}}>⚠️ BATTERY SHORTAGE DETECTED</div>
+          <div style={{fontSize:9.5,color:C.dim,lineHeight:1.6}}>
+            Ada <strong style={{color:"#e040fb"}}>{dR.swapsDeniedNoBatt}x</strong> kejadian DT harus menunggu karena <strong style={{color:C.red}}>semua baterai masih dalam proses charging</strong>.
+            Total waktu tunggu: <strong style={{color:"#e040fb"}}>{dR.totBW.toFixed(1)} menit</strong>.
+            Charge time: {p.tBattCharge} mnt per baterai.
+            Rekomendasi: tambah battery/station atau kurangi charge time.
+          </div>
+        </div>)}
+
+        <div style={sec}><h3 style={{fontSize:10,fontWeight:800,color:C.amber,margin:"0 0 6px"}}>Resources ({dD}d)</h3>
+          <div style={{display:"grid",gridTemplateColumns:`repeat(${Math.min(dR.lUtil.length+dR.dUtil.length+dR.sUtil.length,10)},1fr)`,gap:4}}>
+            {dR.lUtil.map(l=>(<div key={`l${l.id}`} style={{background:C.surface,borderRadius:5,padding:5,border:`1px solid ${C.border}`,textAlign:"center"}}><div style={{fontSize:7.5,color:C.purple,fontWeight:700}}>TL-{l.id}</div><div style={{fontSize:15,fontWeight:800,color:l.util>80?C.green:l.util>40?C.amber:C.red,fontFamily:mono}}>{l.util.toFixed(0)}%</div></div>))}
+            {dR.dUtil.map(d=>(<div key={`d${d.id}`} style={{background:C.surface,borderRadius:5,padding:5,border:`1px solid ${C.border}`,textAlign:"center"}}><div style={{fontSize:7.5,color:"#ff6e40",fontWeight:700}}>Dmp-{d.id}</div><div style={{fontSize:15,fontWeight:800,color:d.util>80?C.green:d.util>40?C.amber:C.red,fontFamily:mono}}>{d.util.toFixed(0)}%</div></div>))}
+            {dR.sUtil.map(s=>(<div key={`s${s.id}`} style={{background:C.surface,borderRadius:5,padding:5,border:`1px solid ${C.border}`,textAlign:"center"}}><div style={{fontSize:7.5,color:"#ffd740",fontWeight:700}}>Swap-{s.id}</div><div style={{fontSize:15,fontWeight:800,color:s.util>80?C.green:s.util>40?C.amber:C.red,fontFamily:mono}}>{s.util.toFixed(0)}%</div></div>))}
+          </div>
+        </div>
+        <div style={sec}><h3 style={{fontSize:10,fontWeight:800,color:C.cyan,margin:"0 0 6px"}}>Breakdown ({dD}d)</h3><UABar r={dR}/></div>
+      </div>)}
+
+      {tab==="gantt"&&gR&&(<div style={sec}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}><h3 style={{fontSize:12,fontWeight:800,color:C.cyan,margin:0}}>📅 Gantt</h3><PP value={gD} onChange={chG}/></div><Gantt trucks={gR.trucks} eff={gR.EFF} sh={p.shiftH} days={gD} swapTL={gR.swapTL} loaderTL={gR.loaderTL} dumpTL={gR.dumpTL} TOTAL={gR.TOTAL}/></div>)}
+
+      {tab==="battery"&&dR&&(<div style={sec}>
+        <h3 style={{fontSize:12,fontWeight:800,color:C.cyan,margin:"0 0 4px"}}>🔋 Battery Monitor</h3>
+        <div style={{fontSize:9,color:C.dim,marginBottom:10}}>Realtime status baterai di swap station: berapa yang <strong style={{color:C.green}}>ready</strong> vs <strong style={{color:C.red}}>charging</strong>. Area merah = baterai sedang di-charge. Garis vertikal merah = <strong style={{color:C.red}}>kosong!</strong> (DT harus tunggu)</div>
+        <CC draw={dBatt} w={640} h={220}/>
+        <div style={{marginTop:10,display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:6}}>
+          <div style={{padding:10,borderRadius:6,background:C.surface,border:`1px solid ${C.border}`}}>
+            <div style={{fontSize:8.5,color:C.dim}}>Total Battery</div>
+            <div style={{fontSize:22,fontWeight:900,color:"#ffd740",fontFamily:mono}}>{dR.totalBatteries}</div>
+            <div style={{fontSize:8,color:C.muted}}>{p.battPerStation}/stn × {p.numSwapStations} stn</div>
+          </div>
+          <div style={{padding:10,borderRadius:6,background:C.surface,border:`1px solid ${C.border}`}}>
+            <div style={{fontSize:8.5,color:C.dim}}>Charge Time</div>
+            <div style={{fontSize:22,fontWeight:900,color:C.red,fontFamily:mono}}>{p.tBattCharge}m</div>
+            <div style={{fontSize:8,color:C.muted}}>SOC {p.socMin}%→{p.socMax}%</div>
+          </div>
+          <div style={{padding:10,borderRadius:6,background:C.surface,border:`1px solid ${dR.swapsDeniedNoBatt>0?C.red:C.green}44`}}>
+            <div style={{fontSize:8.5,color:C.dim}}>Batt Denied</div>
+            <div style={{fontSize:22,fontWeight:900,color:dR.swapsDeniedNoBatt>0?C.red:C.green,fontFamily:mono}}>{dR.swapsDeniedNoBatt}x</div>
+            <div style={{fontSize:8,color:C.muted}}>{dR.swapsDeniedNoBatt>0?"⚠️ ada DT tunggu":"✅ semua lancar"}</div>
+          </div>
+          <div style={{padding:10,borderRadius:6,background:C.surface,border:`1px solid ${"#e040fb"}44`}}>
+            <div style={{fontSize:8.5,color:C.dim}}>Total Wait</div>
+            <div style={{fontSize:22,fontWeight:900,color:"#e040fb",fontFamily:mono}}>{dR.totBW.toFixed(0)}m</div>
+            <div style={{fontSize:8,color:C.muted}}>tunggu batt ready</div>
+          </div>
+        </div>
+        {dR.swapsDeniedNoBatt>0&&(<div style={{marginTop:10,background:C.red+"11",border:`1px solid ${C.red}33`,borderRadius:8,padding:10}}>
+          <div style={{fontSize:10,fontWeight:800,color:C.red,marginBottom:4}}>⚠️ ANALISIS BOTTLENECK BATTERY</div>
+          <div style={{fontSize:9.5,color:C.dim,lineHeight:1.7}}>
+            Dengan <strong style={{color:"#ffd740"}}>{dR.totalBatteries} baterai</strong> dan charge time <strong style={{color:C.red}}>{p.tBattCharge} menit</strong>,
+            ada <strong style={{color:C.red}}>{dR.swapsDeniedNoBatt} kejadian</strong> dimana DT datang untuk swap tetapi <strong style={{color:C.red}}>semua baterai masih charging</strong>.
+            DT harus menunggu rata-rata <strong style={{color:"#e040fb"}}>{dR.swapsDeniedNoBatt>0?(dR.totBW/dR.swapsDeniedNoBatt).toFixed(1):"0"} menit</strong> per kejadian.
+            <br/><br/>
+            <strong style={{color:C.cyan}}>Solusi:</strong> Tambah battery/station menjadi minimal <strong style={{color:C.green}}>{opt.res[opt.bI].n}</strong> (optimal) atau kurangi charge time.
+          </div>
+        </div>)}
+        {dR.swapsDeniedNoBatt===0&&(<div style={{marginTop:10,background:C.green+"11",border:`1px solid ${C.green}33`,borderRadius:8,padding:10}}>
+          <div style={{fontSize:10,fontWeight:800,color:C.green}}>✅ BATTERY SUPPLY CUKUP</div>
+          <div style={{fontSize:9.5,color:C.dim,marginTop:3,lineHeight:1.6}}>
+            Dengan <strong style={{color:"#ffd740"}}>{dR.totalBatteries} baterai</strong> dan charge time <strong style={{color:C.red}}>{p.tBattCharge} menit</strong>,
+            semua permintaan swap terlayani tanpa DT harus menunggu baterai selesai di-charge.
+          </div>
+        </div>)}
+      </div>)}
+
+      {tab==="stagger"&&(<div style={sec}><h3 style={{fontSize:12,fontWeight:800,color:C.cyan,margin:"0 0 8px"}}>🔀 Stagger</h3><CC draw={dS} w={500} h={200}/><div style={{marginTop:8,display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}><div style={{padding:10,borderRadius:6,background:C.surface,border:`2px solid ${C.red}44`}}><div style={{fontSize:9,color:C.red,fontWeight:700}}>Bersamaan</div><div style={{fontSize:20,fontWeight:900,color:C.red,fontFamily:mono}}>UA {sg.res[0].UA.toFixed(1)}%</div></div><div style={{padding:10,borderRadius:6,background:C.surface,border:`2px solid ${C.green}44`}}><div style={{fontSize:9,color:C.green,fontWeight:700}}>★ Optimal ({sg.bestStagger}m)</div><div style={{fontSize:20,fontWeight:900,color:C.green,fontFamily:mono}}>UA {sg.res[sg.bI].UA.toFixed(1)}%</div></div></div></div>)}
+
+      {tab==="swap"&&(<div style={sec}>
+        <h3 style={{fontSize:12,fontWeight:800,color:C.cyan,margin:"0 0 4px"}}>⚡ Swap Battery Optimization</h3>
+        <div style={{fontSize:9,color:C.dim,marginBottom:8}}>Variasi jumlah battery/station. Bar = tonase, Line cyan = UA%, Line ungu = jumlah denied (batt belum ready)</div>
+        <CC draw={dC} w={620} h={250}/>
+        <div style={{marginTop:8,display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+          <div style={{padding:10,borderRadius:6,background:C.surface,border:`2px solid ${C.green}44`}}><div style={{fontSize:9,color:C.green,fontWeight:700}}>★ OPTIMAL</div><div style={{fontSize:22,fontWeight:900,color:C.green,fontFamily:mono}}>{opt.res[opt.bI].n} batt/stn</div><div style={{fontSize:9,color:C.dim}}>Total: {opt.res[opt.bI].n*p.numSwapStations} batt · Denied: {opt.res[opt.bI].denied}x</div></div>
+          <div style={{padding:10,borderRadius:6,background:C.surface,border:`2px solid ${C.amber}44`}}><div style={{fontSize:9,color:C.amber,fontWeight:700}}>EFFICIENT</div><div style={{fontSize:22,fontWeight:900,color:C.amber,fontFamily:mono}}>{opt.res[opt.eI].n} batt/stn</div><div style={{fontSize:9,color:C.dim}}>Total: {opt.res[opt.eI].n*p.numSwapStations} batt · Denied: {opt.res[opt.eI].denied}x</div></div>
+        </div>
+      </div>)}
+
+      {tab==="fleet"&&fData&&(<div style={sec}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}><h3 style={{fontSize:12,fontWeight:800,color:C.cyan,margin:0}}>📈 Fleet Sizing</h3><PP value={fD} onChange={chF}/></div><CC draw={dF} w={640} h={280}/><div style={{fontSize:9,color:C.muted,marginTop:6,lineHeight:1.5}}>Grafik: <strong style={{color:C.cyan}}>ritase</strong> (Y) vs <strong style={{color:C.cyan}}>jumlah DT</strong> (X), dipengaruhi jumlah <strong style={{color:"#ffd740"}}>battery total</strong>. Charge time: {p.tBattCharge} mnt/batt.</div></div>)}
+
+      {tab==="trucks"&&(<div style={sec}><h3 style={{fontSize:12,fontWeight:800,color:C.cyan,margin:"0 0 8px"}}>🚛 Trucks (1d)</h3><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:9.5}}><thead><tr>{["DT","Trips","Ton","Swap","S.W","B.W","L.W⚡","D.W⚡","SC","Rest","IdleE","SOC"].map(h=>(<th key={h} style={{padding:"5px",textAlign:"left",color:C.cyan,borderBottom:`1px solid ${C.border}`,fontWeight:700,fontSize:8}}>{h}</th>))}</tr></thead><tbody>{r.trucks.map(t=>(<tr key={t.id}><td style={{padding:"4px",fontWeight:700,fontFamily:mono}}>DT-{String(t.id).padStart(2,"0")}</td><td style={{padding:"4px",fontFamily:mono}}>{t.trips}</td><td style={{padding:"4px",fontFamily:mono,color:C.green}}>{t.ton.toLocaleString()}</td><td style={{padding:"4px",fontFamily:mono,color:"#ffd740"}}>{t.ss}x</td><td style={{padding:"4px",fontFamily:mono,color:t.sw>5?C.red:C.dim}}>{t.sw.toFixed(0)}</td><td style={{padding:"4px",fontFamily:mono,color:t.bw>0?"#e040fb":C.dim}}>{t.bw.toFixed(0)}</td><td style={{padding:"4px",fontFamily:mono,color:t.lw>5?C.red:C.dim}}>{t.lw.toFixed(0)}</td><td style={{padding:"4px",fontFamily:mono,color:t.dw>5?C.red:C.dim}}>{t.dw.toFixed(0)}</td><td style={{padding:"4px",fontFamily:mono,color:"#5c6bc0"}}>{t.bt.toFixed(0)}</td><td style={{padding:"4px",fontFamily:mono,color:C.teal}}>{t.rt.toFixed(0)}</td><td style={{padding:"4px",fontFamily:mono,color:t.idleE>0.5?C.red:C.dim}}>{t.idleE.toFixed(1)}</td><td style={{padding:"4px"}}><span style={{padding:"1px 4px",borderRadius:4,fontSize:8,fontWeight:700,fontFamily:mono,background:t.soc<p.socMin+5?C.red+"22":C.green+"22",color:t.soc<p.socMin+5?C.red:C.green}}>{t.soc.toFixed(1)}%</span></td></tr>))}</tbody>
+      <tfoot><tr style={{borderTop:`2px solid ${C.cyan}44`}}><td style={{padding:"5px",fontWeight:800,color:C.cyan}}>TOT</td><td style={{padding:"5px",fontWeight:800,fontFamily:mono,color:C.cyan}}>{r.totTrips}</td><td style={{padding:"5px",fontWeight:800,fontFamily:mono,color:C.green}}>{r.totTon.toLocaleString()}</td><td style={{padding:"5px",fontWeight:800,fontFamily:mono,color:"#ffd740"}}>{r.totSS}x</td><td style={{padding:"5px",fontFamily:mono}}>{r.totSW.toFixed(0)}</td><td style={{padding:"5px",fontFamily:mono,color:"#e040fb"}}>{r.totBW.toFixed(0)}</td><td style={{padding:"5px",fontFamily:mono,color:C.red}}>{r.totLW.toFixed(0)}</td><td style={{padding:"5px",fontFamily:mono,color:C.red}}>{r.totDW.toFixed(0)}</td><td style={{padding:"5px",fontFamily:mono}}>{r.totBT.toFixed(0)}</td><td style={{padding:"5px",fontFamily:mono}}>{r.totRT.toFixed(0)}</td><td style={{padding:"5px",fontFamily:mono,color:C.red}}>{r.totIdleE.toFixed(1)}</td><td/></tr></tfoot></table></div>
+      <div style={{marginTop:6,fontSize:8,color:C.muted}}>S.W = Antri Swap Station · <strong style={{color:"#e040fb"}}>B.W = Tunggu Batt (belum ready, masih charging)</strong> · L.W/D.W = Antri Loader/Dump</div>
+      </div>)}
+
+      {tab==="ai"&&(<div style={sec}><div style={{display:"flex",alignItems:"center",gap:6,marginBottom:10}}><h3 style={{fontSize:12,fontWeight:800,color:C.cyan,margin:0}}>🤖 AI</h3><span style={{padding:"2px 6px",borderRadius:4,fontSize:9,fontWeight:700,background:`${C.purple}22`,color:C.purple}}>Claude Opus 4.6</span></div><AIPanel ai={ai} loading={aiL} simulate={simulate}/></div>)}
+
+      <div style={{marginTop:4,padding:8,borderRadius:6,background:C.cardAlt,border:`1px solid ${C.border}`,fontSize:8.5,color:C.muted,lineHeight:1.5}}>
+        <strong style={{color:C.cyan}}>v2.1</strong> <strong style={{color:"#ffd740"}}>SWAP BATTERY</strong> + <strong style={{color:C.red}}>CHARGE CYCLE {p.tBattCharge}m</strong> · Battery drain <strong style={{color:C.red}}>HANYA</strong> antri loader⚡ & dump⚡ · <strong style={{color:"#e040fb"}}>Tunggu Batt</strong> = semua batt masih charging
+      </div>
+    </React.Fragment>)}
+  </div>)
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script><script>
+(function(){
+  if(window.LocalFS) return; /* already loaded */
+  const IDB_NAME='app_fs_v1', IDB_STORE='handles';
+  function idbOpen(){return new Promise((res,rej)=>{const r=indexedDB.open(IDB_NAME,1);r.onupgradeneeded=e=>e.target.result.createObjectStore(IDB_STORE);r.onsuccess=e=>res(e.target.result);r.onerror=e=>rej(e.target.error)})}
+  async function idbGet(k){const db=await idbOpen();return new Promise((res,rej)=>{const r=db.transaction(IDB_STORE,'readonly').objectStore(IDB_STORE).get(k);r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)})}
+  async function idbSet(k,v){const db=await idbOpen();return new Promise((res,rej)=>{const r=db.transaction(IDB_STORE,'readwrite').objectStore(IDB_STORE).put(v,k);r.onsuccess=()=>res();r.onerror=()=>rej(r.error)})}
+  async function idbDel(k){const db=await idbOpen();return new Promise((res,rej)=>{const r=db.transaction(IDB_STORE,'readwrite').objectStore(IDB_STORE).delete(k);r.onsuccess=()=>res();r.onerror=()=>rej(r.error)})}
+  let dirHandle=null, connected=false;
+  const _setItem=localStorage.setItem.bind(localStorage);
+  const _removeItem=localStorage.removeItem.bind(localStorage);
+  const _clear=localStorage.clear.bind(localStorage);
+  function sanitize(n){return n.replace(/[\\/:*?"<>|]/g,'_')}
+  function isAppKey(k){return k && (k.startsWith('rc_')||k.startsWith('ev_sim')||k.startsWith('tbe_')||k.startsWith('fm_')||k.startsWith('mp_'))}
+  function supported(){return !!window.showDirectoryPicker}
+  async function verifyPerm(h){if(!h.queryPermission)return true;if((await h.queryPermission({mode:'readwrite'}))==='granted')return true;return (await h.requestPermission({mode:'readwrite'}))==='granted'}
+  async function saveFile(k,v){if(!dirHandle)return;try{const fh=await dirHandle.getFileHandle(sanitize(k)+'.json',{create:true});const w=await fh.createWritable();await w.write(typeof v==='string'?v:JSON.stringify(v,null,2));await w.close()}catch(e){console.warn('LocalFS save',k,e)}}
+  async function loadFile(k){if(!dirHandle)return null;try{const fh=await dirHandle.getFileHandle(sanitize(k)+'.json');return await(await fh.getFile()).text()}catch(e){return null}}
+  /* Monkey-patch localStorage to mirror app keys to folder */
+  localStorage.setItem=function(k,v){_setItem(k,v);if(connected&&isAppKey(k))saveFile(k,v)};
+  localStorage.removeItem=function(k){_removeItem(k);if(connected&&isAppKey(k)&&dirHandle){try{dirHandle.removeEntry(sanitize(k)+'.json')}catch(e){}}};
+  async function syncFromFolder(){if(!connected||!dirHandle)return 0;let n=0;try{for await(const e of dirHandle.values()){if(e.kind==='file'&&e.name.endsWith('.json')){const k=e.name.replace(/\.json$/,'');if(isAppKey(k)){const t=await(await e.getFile()).text();_setItem(k,t);n++}}}}catch(e){console.error(e)}return n}
+  async function uploadAllToFolder(){if(!connected)return 0;let n=0;for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(isAppKey(k)){await saveFile(k,localStorage.getItem(k));n++}}return n}
+  async function collectAppFiles(){if(!dirHandle)return[];const out=[];try{for await(const e of dirHandle.values()){if(e.kind==='file'&&e.name.endsWith('.json')){const k=e.name.replace(/\.json$/,'');if(isAppKey(k))out.push(k)}}}catch(e){}return out}
+  async function connect(){
+    if(!supported()){alert('File System Access tidak didukung. Pakai Chrome/Edge terbaru.');return false}
+    try{
+      const h=await window.showDirectoryPicker({mode:'readwrite',startIn:'documents'});
+      dirHandle=h;await idbSet('dirHandle',h);connected=true;updateUI();
+      const files=await collectAppFiles();
+      if(files.length>0){
+        const ok=confirm(`Folder sudah berisi ${files.length} file aplikasi.\n\nYa  = Load dari folder (REPLACE data browser)\nNo  = Upload data browser saat ini ke folder (merge)`);
+        if(ok){await syncFromFolder();location.reload()} else {await uploadAllToFolder()}
+      } else {
+        const n=await uploadAllToFolder();
+        if(n>0) toast(`✅ ${n} data ter-upload ke folder ${h.name}. Permanent now.`);
+        else toast(`📂 Folder ${h.name} terhubung. Save berikutnya akan auto-sync.`);
+      }
+      return true
+    }catch(e){if(e.name!=='AbortError')console.error(e);return false}
+  }
+  async function disconnect(){if(!confirm('Disconnect folder? Data tetap di file, tapi save berikutnya hanya ke browser.'))return;dirHandle=null;connected=false;await idbDel('dirHandle');updateUI();toast('Folder disconnected. Mode: browser only.')}
+  async function autoConnect(){if(!supported())return false;try{const h=await idbGet('dirHandle');if(!h)return false;if(await verifyPerm(h)){dirHandle=h;connected=true;updateUI();await syncFromFolder();return true}}catch(e){}return false}
+  function toast(msg){const t=document.createElement('div');t.textContent=msg;t.style.cssText='position:fixed;bottom:14px;right:14px;background:#1c1917;color:#fef3c7;padding:10px 16px;border-left:3px solid #84cc16;border-radius:6px;font-size:12px;z-index:99999;box-shadow:0 4px 12px rgba(0,0,0,.5);font-family:system-ui';document.body.appendChild(t);setTimeout(()=>t.remove(),3500)}
+  function injectWidget(){
+    if(document.getElementById('localfs_widget'))return;
+    const d=document.createElement('div');
+    d.id='localfs_widget';
+    d.style.cssText='position:fixed;top:6px;right:6px;z-index:999998;background:rgba(15,15,15,0.92);backdrop-filter:blur(8px);border:1px solid #3d342a;border-radius:6px;padding:5px 8px;display:flex;gap:6px;align-items:center;font-size:10.5px;font-family:system-ui;color:#fef3c7;box-shadow:0 2px 8px rgba(0,0,0,.4)';
+    d.innerHTML='<span id="localfs_status" style="font-weight:700">⚠️ Browser only</span><button id="localfs_btn" style="padding:3px 8px;font-size:10px;font-weight:700;border:none;border-radius:4px;cursor:pointer;background:#0d9488;color:white">🔗 Connect Folder</button>';
+    document.body.appendChild(d);
+    updateUI();
+  }
+  function updateUI(){
+    const s=document.getElementById('localfs_status');
+    if(s){if(connected){s.innerHTML=`📂 <b style="color:#84cc16">${dirHandle?.name||'connected'}</b>`;s.title='Data ter-mirror ke folder lokal. Tidak hilang saat clear cache.'} else {s.innerHTML='⚠️ <b style="color:#f59e0b">Browser only</b>';s.title='Data hanya di browser. Klik Connect Folder untuk save permanent.'}}
+    const b=document.getElementById('localfs_btn');
+    if(b){b.textContent=connected?'🔌 Disconnect':'🔗 Connect Folder';b.onclick=connected?disconnect:connect;b.style.background=connected?'#dc2626':'#0d9488'}
+  }
+  window.LocalFS={connect,disconnect,autoConnect,supported,isConnected:()=>connected,folderName:()=>dirHandle?.name||'',uploadAll:uploadAllToFolder,syncFrom:syncFromFolder,updateUI};
+  window.addEventListener('DOMContentLoaded',async()=>{injectWidget();await autoConnect()});
+})();
+</script>
+</body></html>

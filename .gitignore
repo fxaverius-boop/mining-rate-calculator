@@ -8,3 +8,10 @@
 !.gitignore
 !index.html
 !README.md
+
+# EV Hauling Simulator (di-iframe oleh app) — aman dipublish: tanpa data rate/gaji/project,
+# self-contained (CDN only), hanya kredit penulis.
+!ev-hauling-simulator-v2.1-swap-charge.html
+!ev-hauling-simulator-v8_3.html
+!ev-hauling-simulator-v9-loc.html
+!ev-hauling-simulator-v10-swap-loc.html

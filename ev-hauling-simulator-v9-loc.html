@@ -1,0 +1,1002 @@
+<!DOCTYPE html>
+<html lang="id"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>EV Hauling Simulator v9.0 — Pile Location + Midpoint Opt</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700;800&display=swap" rel="stylesheet">
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>*{margin:0;padding:0;box-sizing:border-box}body{background:#05080e;font-family:'Segoe UI',system-ui,sans-serif}input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none}input[type=number]{-moz-appearance:textfield}::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:#0a1019}::-webkit-scrollbar-thumb{background:#1a2847;border-radius:3px}@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}table{border-spacing:0}canvas{display:block}</style>
+</head><body><div id="root"></div>
+<script type="text/babel">
+const{useState,useEffect,useCallback,useRef}=React;
+const C={bg:"#05080e",card:"#0d1424",cardAlt:"#121d33",surface:"#0a1019",border:"#1a2847",cyan:"#00e5ff",cyanD:"#007c8a",green:"#00e676",amber:"#ffab00",amberD:"#e65100",red:"#ff5252",purple:"#b388ff",pink:"#ff80ab",blue:"#448aff",white:"#edf1f7",dim:"#7a8da8",muted:"#4a5c7a",teal:"#26a69a"};
+const STEP={hauling_kosong:{l:"Hauling Kosong",c:C.blue},antri_loader:{l:"Antri Loader ⚡",c:C.amber},loading_cpp:{l:"Loading",c:C.purple},hauling_isi:{l:"Hauling Isi",c:C.green},antri_dump:{l:"Antri Dump ⚡",c:"#ff6e40"},dumping:{l:"Dumping",c:C.pink},detour_charge:{l:"Detour ke Charger",c:C.cyan},antri_charging:{l:"Antri Charge",c:C.red},charging:{l:"Charging",c:"#ffd740"},idle:{l:"Idle",c:C.muted},shift_change:{l:"Shift Change",c:"#5c6bc0"},rest_break:{l:"Istirahat",c:C.teal}};
+const DEF={totalTrucks:13,payload:40,batteryCapacity:282,consEmpty:2.0,consLoaded:3.2,spdEmpty:30,spdLoaded:20,socMin:20,socMax:80,paUnit:90,distEmpty:4,distLoaded:4,numLoaders:1,tLoad:12,tAntriLoader:0,numDumps:1,tDump:5,tAntriDump:0,tCharge:45,pilesAtLP:0,pilesAtMID:0,pilesAtDP:3,midKm:2,gunsPerPile:2,gunsPerDT:3,socWarn:30,shiftH:24,staggerMin:0,shiftChangeDur:30,restBreakDur:60,idleConsKwMin:0.05};
+const mono="'JetBrains Mono',monospace";
+const LOC_LABEL={LP:'Loading Point',MID:'Midpoint',DP:'Dumping Point'};
+const LOC_COLOR={LP:C.purple,MID:'#ff6e40',DP:C.pink};
+
+function buildBreaks(p,days){const b=[];for(let d=0;d<days;d++){const o=d*1440;b.push({t:o+720,dur:p.shiftChangeDur,type:"shift_change"});b.push({t:o+360,dur:p.restBreakDur,type:"rest_break"});b.push({t:o+1080,dur:p.restBreakDur,type:"rest_break"});if(d>0)b.push({t:o,dur:p.shiftChangeDur,type:"shift_change"})}return b.filter(x=>x.dur>0).sort((a,b)=>a.t-b.t)}
+function advBreaks(now,brks,mx){const logs=[];let t=now;for(const b of brks){if(t>=mx)break;if(b.t+b.dur<=t)continue;if(t>=b.t&&t<b.t+b.dur){const r=b.t+b.dur-t;logs.push({e:b.type,t0:t,d:r});t=b.t+b.dur}else if(b.t>t)break}return{nt:t,logs}}
+function PQ(){const h=[];const sw=(i,j)=>{[h[i],h[j]]=[h[j],h[i]]};const up=i=>{while(i>0){const p=(i-1)>>1;if(h[p].t>h[i].t||(h[p].t===h[i].t&&h[p].tid>h[i].tid)){sw(p,i);i=p}else break}};const dn=i=>{const n=h.length;while(true){let s=i;const l=2*i+1,r=2*i+2;if(l<n&&(h[l].t<h[s].t||(h[l].t===h[s].t&&h[l].tid<h[s].tid)))s=l;if(r<n&&(h[r].t<h[s].t||(h[r].t===h[s].t&&h[r].tid<h[s].tid)))s=r;if(s===i)break;sw(i,s);i=s}};return{push(e){h.push(e);up(h.length-1)},pop(){if(!h.length)return null;const t=h[0];const l=h.pop();if(h.length){h[0]=l;dn(0)}return t},get size(){return h.length}}}
+
+function runSim(p,days=1){
+  const DAY=p.shiftH*60,TOTAL=DAY*days;
+  const tE=(p.distEmpty/p.spdEmpty)*60,tL=(p.distLoaded/p.spdLoaded)*60;
+  const eE=p.consEmpty*p.distEmpty,eL=p.consLoaded*p.distLoaded,ePT=eE+eL;
+  const idleKw=p.idleConsKwMin;
+  const tLoadEff=p.tLoad+(p.tAntriLoader||0),tDumpEff=p.tDump+(p.tAntriDump||0);
+  const cyc=tE+tLoadEff+tL+tDumpEff;
+  const gpp=p.gunsPerPile||2,gpd=p.gunsPerDT||3;
+  const slotsAt=loc=>{const piles=loc==='LP'?(p.pilesAtLP||0):loc==='MID'?(p.pilesAtMID||0):(p.pilesAtDP||0);return piles<=0?0:Math.max(0,Math.floor(piles*gpp/gpd))};
+  const eff={LP:slotsAt('LP'),MID:slotsAt('MID'),DP:slotsAt('DP')};
+  if(eff.LP+eff.MID+eff.DP===0)eff.DP=1;
+  const locKm={LP:0,MID:Math.max(0,Math.min(p.distLoaded,p.midKm||p.distLoaded/2)),DP:p.distLoaded};
+  const ch={LP:Array.from({length:eff.LP},()=>({busyUntil:0,totalBusy:0,sessions:[]})),MID:Array.from({length:eff.MID},()=>({busyUntil:0,totalBusy:0,sessions:[]})),DP:Array.from({length:eff.DP},()=>({busyUntil:0,totalBusy:0,sessions:[]}))};
+  const lB=new Float64Array(p.numLoaders),lBu=new Float64Array(p.numLoaders),dB=new Float64Array(p.numDumps),dBu=new Float64Array(p.numDumps);
+  const lTL=Array.from({length:p.numLoaders},()=>[]),dTL=Array.from({length:p.numDumps},()=>[]);
+  const brks=buildBreaks(p,days);let bpd=0;for(const b of buildBreaks(p,1))bpd+=b.dur;
+  const EFF=Math.max(0,(DAY*(p.paUnit/100)-bpd))*days;
+  const T=[];
+  for(let i=0;i<p.totalTrucks;i++)T.push({id:i+1,soc:p.socMax,trips:0,ton:0,cs:0,cw:0,lw:0,dw:0,ct:0,pt:0,bt:0,rt:0,dtTime:0,idleE:0,detKm:0,log:[],chargesByLoc:{LP:0,MID:0,DP:0},done:false});
+  const pq=PQ();
+  for(let i=0;i<p.totalTrucks;i++){const st=i*p.staggerMin;if(st>0)T[i].log.push({e:"idle",t0:0,d:st});pq.push({t:st,tid:i,type:'go'})}
+  /* ====== doWork: jalankan AKTIVITAS KERJA (haul/load/dump) durasi tetap.
+     - Step 1: kalau `cur` sedang dalam break aktif → absorb break dulu sampai end
+     - Step 2: kalau break MULAI di tengah work window → split: work-break-work sisa
+     Returns: { newTime: wall-clock end, workMinutes: actual work time exclude break } */
+  const doWork=(tr,t,duration,eventName,extraProps)=>{
+    let cur=t,rem=duration,workMinutes=0;
+    while(rem>0.01 && cur<TOTAL){
+      /* STEP 1: absorb active break first */
+      const active=brks.find(b=>b.t<=cur && b.t+b.dur>cur && b.dur>0);
+      if(active){
+        const bEnd=Math.min(active.t+active.dur,TOTAL);
+        const bDur=bEnd-cur;
+        if(bDur>0.01){tr.log.push({e:active.type,t0:cur,d:bDur});if(active.type==="shift_change")tr.bt+=bDur;else if(active.type==="rest_break")tr.rt+=bDur}
+        cur=bEnd;continue;
+      }
+      /* STEP 2: find next break starting within work window */
+      const nxt=brks.find(b=>b.t>=cur && b.t<cur+rem && b.dur>0);
+      if(!nxt){
+        const dEnd=Math.min(cur+rem,TOTAL);
+        const d=dEnd-cur;
+        if(d>0.01){tr.log.push({e:eventName,t0:cur,d,...(extraProps||{})});workMinutes+=d}
+        cur=dEnd;rem=0;
+      } else {
+        const part=nxt.t-cur;
+        if(part>0.01){tr.log.push({e:eventName,t0:cur,d:part,...(extraProps||{})});workMinutes+=part;cur=nxt.t;rem-=part}
+        /* loop akan absorb break via active check di iterasi berikut */
+      }
+    }
+    return{newTime:cur,workMinutes};
+  };
+  /* ====== waitUntil: tunggu sampai target time (queue wait).
+     Bedanya dengan doWork: durasi DINAMIS (target-cur), break MENGURANGI wait time
+     karena truck dalam break, bukan queue. */
+  const waitUntil=(tr,t,target,eventName,extraProps)=>{
+    let cur=t,waitMinutes=0;
+    while(cur<target && cur<TOTAL){
+      const active=brks.find(b=>b.t<=cur && b.t+b.dur>cur && b.dur>0);
+      if(active){
+        const bEnd=Math.min(active.t+active.dur,TOTAL);
+        const bDur=bEnd-cur;
+        if(bDur>0.01){tr.log.push({e:active.type,t0:cur,d:bDur});if(active.type==="shift_change")tr.bt+=bDur;else if(active.type==="rest_break")tr.rt+=bDur}
+        cur=bEnd;continue;
+      }
+      const nxt=brks.find(b=>b.t>cur && b.t<Math.min(target,TOTAL) && b.dur>0);
+      const stop=nxt?nxt.t:Math.min(target,TOTAL);
+      const wDur=stop-cur;
+      if(wDur>0.01){tr.log.push({e:eventName,t0:cur,d:wDur,...(extraProps||{})});waitMinutes+=wDur}
+      cur=stop;
+    }
+    return{newTime:cur,waitMinutes};
+  };
+  /* Pick best charger location.
+     onRoute=true: truck akan natural pass lokasi tsb sebagai bagian rute (no detour).
+     onRoute=false: truck harus keluar dari rute untuk charge (detour penalty). */
+  const pickCharger=(now,phase,onRouteSet)=>{
+    const out=[];
+    ['LP','MID','DP'].forEach(loc=>{
+      if(eff[loc]===0)return;
+      let bi=0;for(let i=1;i<ch[loc].length;i++)if(ch[loc][i].busyUntil<ch[loc][bi].busyUntil)bi=i;
+      const wait=Math.max(0,ch[loc][bi].busyUntil-now);
+      const isOnRoute = onRouteSet ? onRouteSet.has(loc) : (loc===phase);
+      const km = isOnRoute ? 0 : Math.abs(locKm[loc]-locKm[phase]);
+      const dm = km>0 ? (km*60/Math.max(1,p.spdEmpty)) : 0;
+      out.push({loc,idx:bi,wait,detourMin:dm,km,totalCost:wait+dm*2,onRoute:isOnRoute});
+    });
+    out.sort((a,b)=>a.totalCost-b.totalCost);
+    return out[0]||null
+  };
+  /* goCharge — onRouteSet: Set of locations yang sedang on-route (no detour penalty).
+     Default: hanya phase saat ini (lokasi truck sekarang). */
+  const goCharge=(tr,now,phase,onRouteSet)=>{
+    const pick=pickCharger(now,phase,onRouteSet);
+    if(!pick)return{newTime:now,didCharge:false};
+    let t=now;
+    /* Detour only if NOT on-route */
+    if(pick.detourMin>0&&!pick.onRoute){
+      tr.log.push({e:"detour_charge",t0:t,d:pick.detourMin,locTo:pick.loc});
+      tr.dtTime+=pick.detourMin;
+      const det=(pick.km*p.consEmpty/p.batteryCapacity)*100;
+      tr.soc-=det;tr.detKm+=pick.km;t+=pick.detourMin;
+    }
+    if(t>=TOTAL){tr.done=true;return{newTime:t,didCharge:false}}
+    const slot=ch[pick.loc][pick.idx];
+    const cs=Math.max(t,slot.busyUntil);
+    /* Queue wait di charger — pause kalau kena break */
+    if(cs>t+0.5){
+      const wq=waitUntil(tr,t,cs,"antri_charging",{loc:pick.loc,ci:pick.idx});
+      tr.cw+=wq.waitMinutes;const drainQ=idleKw*wq.waitMinutes;tr.idleE+=drainQ;tr.soc-=(drainQ/p.batteryCapacity)*100;
+      t=wq.newTime;
+    }
+    /* Kalau setelah queue cur sudah melewati cs, recompute. Charging itself adalah work activity. */
+    if(t>=TOTAL){tr.done=true;return{newTime:t,didCharge:false}}
+    /* Charging — split kalau kena break (unit berhenti saat break, charging pause) */
+    const wCharge=doWork(tr,t,p.tCharge,"charging",{loc:pick.loc,ci:pick.idx});
+    if(t+p.tCharge>TOTAL){const r=TOTAL-t;if(r>0.5)tr.log.push({e:"idle",t0:wCharge.newTime,d:0});tr.done=true;return{newTime:wCharge.newTime,didCharge:false}}
+    slot.busyUntil=wCharge.newTime;slot.totalBusy+=wCharge.workMinutes;slot.sessions.push({truck:tr.id,start:t,end:wCharge.newTime});
+    tr.soc=p.socMax;tr.cs++;tr.ct+=wCharge.workMinutes;tr.chargesByLoc[pick.loc]++;
+    let tA=wCharge.newTime;
+    if(pick.detourMin>0&&!pick.onRoute){
+      tr.log.push({e:"detour_charge",t0:tA,d:pick.detourMin,locFrom:pick.loc});
+      tr.dtTime+=pick.detourMin;
+      const det=(pick.km*p.consEmpty/p.batteryCapacity)*100;
+      tr.soc-=det;tr.detKm+=pick.km;tA+=pick.detourMin;
+    }
+    return{newTime:tA,didCharge:true,pickedLoc:pick.loc};
+  };
+  /* ====== CYCLE FLOW: starts at LP (loading point) ======
+     Tiap cycle: Loading → [check SOC for LP→DP] → Loaded haul (split if MID charge needed)
+                → Dumping → [check SOC for DP→LP] → Empty return (split if MID charge needed)
+     Predictive charging: HITUNG apakah SOC cukup sampai DP (atau LP),
+     kalau tidak → decide charging di lokasi mana yang masih reachable. */
+  let sf=0;const MX=p.totalTrucks*days*600;
+  const midKm=locKm.MID;
+  const distLPtoMid=midKm;
+  const distMidToDP=Math.max(0,p.distLoaded-midKm);
+  const distToMidFromDP=p.distEmpty>0?Math.max(0,Math.min(p.distEmpty,p.distEmpty*(p.distLoaded-midKm)/Math.max(0.01,p.distLoaded))):0;
+  const distMidToLP=Math.max(0,p.distEmpty-distToMidFromDP);
+  /* Energy needed (kWh) per sub-segment */
+  const eLP_MID = p.consLoaded * distLPtoMid;       /* LP → MID loaded */
+  const eMID_DP = p.consLoaded * distMidToDP;       /* MID → DP loaded */
+  const eDP_MID = p.consEmpty  * distToMidFromDP;   /* DP → MID empty */
+  const eMID_LP = p.consEmpty  * distMidToLP;       /* MID → LP empty */
+  /* SOC % drain per sub-segment */
+  const sLP_MID = (eLP_MID/p.batteryCapacity)*100;
+  const sMID_DP = (eMID_DP/p.batteryCapacity)*100;
+  const sDP_MID = (eDP_MID/p.batteryCapacity)*100;
+  const sMID_LP = (eMID_LP/p.batteryCapacity)*100;
+  const sL_full = (eL/p.batteryCapacity)*100;       /* full LP → DP loaded */
+  const sE_full = (eE/p.batteryCapacity)*100;       /* full DP → LP empty */
+
+  while(pq.size>0&&sf<MX){sf++;const ev=pq.pop();const tr=T[ev.tid];let now=ev.t;if(tr.done)continue;if(now>=TOTAL){tr.done=true;continue}
+    /* Process breaks — saat shift change & istirahat, UNIT BERHENTI total.
+       Tidak ada loading/dump/hauling. Tidak ada charging. Tidak ada battery drain. */
+    const{nt:n1,logs:bL}=advBreaks(now,brks,TOTAL);for(const bl of bL){tr.log.push(bl);if(bl.e==="shift_change")tr.bt+=bl.d;if(bl.e==="rest_break")tr.rt+=bl.d}now=n1;if(now>=TOTAL){tr.done=true;continue}
+    /* Time check — can finish whole cycle in shift? */
+    if(now+cyc>TOTAL){const r=TOTAL-now;if(r>0.5)tr.log.push({e:"idle",t0:now,d:r});tr.done=true;continue}
+    let cur=now;
+
+    /* ========== STEP 1: LOADER QUEUE + LOADING at LP ========== */
+    let bl2=0;for(let l=1;l<p.numLoaders;l++)if(lB[l]<lB[bl2])bl2=l;
+    const ls=Math.max(cur,lB[bl2]);
+    /* Queue wait — tunggu sampai loader free. Break MENGURANGI wait time (truck di break, bukan queue). */
+    if(ls>cur+0.5){
+      const wq=waitUntil(tr,cur,ls,"antri_loader",{li:bl2});
+      tr.lw+=wq.waitMinutes;const drain=idleKw*wq.waitMinutes;tr.idleE+=drain;tr.soc-=(drain/p.batteryCapacity)*100;
+      cur=wq.newTime;
+    }
+    /* Loading — split kalau kena break */
+    const wLoad=doWork(tr,cur,tLoadEff,"loading_cpp",{li:bl2});
+    lBu[bl2]+=wLoad.workMinutes;lTL[bl2].push({truck:tr.id,start:cur,end:wLoad.newTime});
+    lB[bl2]=wLoad.newTime;cur=wLoad.newTime;tr.pt+=wLoad.workMinutes;
+
+    /* ========== STEP 2: PREDICTIVE SOC CHECK for LP → DP haul ==========
+       Bisakah truck sampai DP tanpa charging? (perhitungkan return drive nanti juga) */
+    const socAfterLPtoDP = tr.soc - sL_full;
+    const socAfterFullCycle = socAfterLPtoDP - sE_full;
+    let needChargeNow = false;       /* must charge at LP before haul */
+    let needChargeAtMID = false;     /* charge at MID during loaded haul */
+    if(socAfterFullCycle < p.socMin || socAfterLPtoDP < p.socMin){
+      /* Kebutuhan charge. Cek bisakah MID dipakai untuk save the day? */
+      const socAtMID = tr.soc - sLP_MID;
+      if(eff.MID>0 && midKm>0 && midKm<p.distLoaded && socAtMID >= p.socMin){
+        /* Bisa sampai MID — charge di sana, lanjut. After charge: SOC=max, lalu drain sMID_DP */
+        needChargeAtMID = true;
+      } else if(eff.LP>0){
+        /* Charge dulu di LP, baru haul */
+        needChargeNow = true;
+      } else if(eff.DP>0 && socAfterLPtoDP >= p.socMin){
+        /* Bisa sampai DP tanpa charge mid-route, charge di DP setelah dumping */
+        /* nothing to do here; will be handled after dumping */
+      } else if(socAfterLPtoDP < p.socMin){
+        /* Tidak ada solusi rapi → emergency charge di LP kalau ada, atau MID via detour */
+        needChargeNow = eff.LP>0 ? true : false;
+        if(!needChargeNow && eff.MID>0) needChargeAtMID = true; /* try anyway */
+      }
+    }
+
+    /* Charge at LP if decided */
+    if(needChargeNow && eff.LP>0){
+      const res=goCharge(tr,cur,'LP',new Set(['LP']));
+      cur=res.newTime;if(tr.done)continue;
+    }
+
+    /* ========== STEP 3: LOADED HAUL LP → DP (split di MID kalau perlu charge) ========== */
+    if(needChargeAtMID && eff.MID>0 && midKm>0 && midKm<p.distLoaded){
+      const t1=(distLPtoMid/Math.max(0.01,p.spdLoaded))*60;
+      const wh1=doWork(tr,cur,t1,"hauling_isi");cur=wh1.newTime;tr.pt+=wh1.workMinutes;
+      tr.soc-=sLP_MID;
+      const res=goCharge(tr,cur,'MID',new Set(['MID']));
+      cur=res.newTime;if(tr.done)continue;
+      const t2=(distMidToDP/Math.max(0.01,p.spdLoaded))*60;
+      const wh2=doWork(tr,cur,t2,"hauling_isi");cur=wh2.newTime;tr.pt+=wh2.workMinutes;
+      tr.soc-=sMID_DP;
+    } else {
+      const wh=doWork(tr,cur,tL,"hauling_isi");cur=wh.newTime;tr.pt+=wh.workMinutes;
+      tr.soc-=sL_full;
+    }
+
+    /* ========== STEP 4: DUMP QUEUE + DUMPING at DP ========== */
+    let bd=0;for(let dx=1;dx<p.numDumps;dx++)if(dB[dx]<dB[bd])bd=dx;
+    const ds=Math.max(cur,dB[bd]);
+    if(ds>cur+0.5){
+      const wq=waitUntil(tr,cur,ds,"antri_dump",{di:bd});
+      tr.dw+=wq.waitMinutes;const drain=idleKw*wq.waitMinutes;tr.idleE+=drain;tr.soc-=(drain/p.batteryCapacity)*100;
+      cur=wq.newTime;
+    }
+    const wDump=doWork(tr,cur,tDumpEff,"dumping",{di:bd});
+    dBu[bd]+=wDump.workMinutes;dTL[bd].push({truck:tr.id,start:cur,end:wDump.newTime});
+    dB[bd]=wDump.newTime;cur=wDump.newTime;tr.pt+=wDump.workMinutes;
+    tr.trips++;tr.ton+=p.payload;
+
+    /* ========== STEP 5: PREDICTIVE SOC CHECK for DP → LP empty return ========== */
+    const socAfterDPtoLP = tr.soc - sE_full;
+    let needChargeDPnow = false;     /* charge at DP before return */
+    let needChargeAtMID_return = false;
+    if(socAfterDPtoLP < p.socMin){
+      const socAtMID_return = tr.soc - sDP_MID;
+      if(eff.MID>0 && midKm>0 && midKm<p.distLoaded && socAtMID_return >= p.socMin){
+        needChargeAtMID_return = true;
+      } else if(eff.DP>0){
+        needChargeDPnow = true;
+      } else if(eff.LP>0 && socAfterDPtoLP >= p.socMin){
+        /* Reachable, charge later at LP — pass */
+      } else {
+        needChargeDPnow = eff.DP>0 ? true : false;
+        if(!needChargeDPnow && eff.MID>0) needChargeAtMID_return = true;
+      }
+    }
+
+    /* Charge at DP if decided */
+    if(needChargeDPnow && eff.DP>0){
+      const res=goCharge(tr,cur,'DP',new Set(['DP']));
+      cur=res.newTime;if(tr.done)continue;
+    }
+
+    /* ========== STEP 6: EMPTY RETURN DP → LP (split di MID kalau perlu charge) ========== */
+    if(needChargeAtMID_return && eff.MID>0 && midKm>0 && midKm<p.distLoaded){
+      const t1=(distToMidFromDP/Math.max(0.01,p.spdEmpty))*60;
+      const wh1=doWork(tr,cur,t1,"hauling_kosong");cur=wh1.newTime;tr.pt+=wh1.workMinutes;
+      tr.soc-=sDP_MID;
+      const res=goCharge(tr,cur,'MID',new Set(['MID']));
+      cur=res.newTime;if(tr.done)continue;
+      const t2=(distMidToLP/Math.max(0.01,p.spdEmpty))*60;
+      const wh2=doWork(tr,cur,t2,"hauling_kosong");cur=wh2.newTime;tr.pt+=wh2.workMinutes;
+      tr.soc-=sMID_LP;
+    } else {
+      const wh=doWork(tr,cur,tE,"hauling_kosong");cur=wh.newTime;tr.pt+=wh.workMinutes;
+      tr.soc-=sE_full;
+    }
+
+    pq.push({t:cur,tid:ev.tid,type:'go'})}
+  const totTon=T.reduce((s,t)=>s+t.ton,0),totTrips=T.reduce((s,t)=>s+t.trips,0),totLW=T.reduce((s,t)=>s+t.lw,0),totDW=T.reduce((s,t)=>s+t.dw,0),totCW=T.reduce((s,t)=>s+t.cw,0),totCT=T.reduce((s,t)=>s+t.ct,0),totBT=T.reduce((s,t)=>s+t.bt,0),totRT=T.reduce((s,t)=>s+t.rt,0),totPT=T.reduce((s,t)=>s+t.pt,0),totIdleE=T.reduce((s,t)=>s+t.idleE,0),totDet=T.reduce((s,t)=>s+t.detKm,0);
+  const totAvail=p.totalTrucks*TOTAL;const totIdle=Math.max(0,totAvail-totPT-totLW-totDW-totCW-totCT-totBT-totRT);const UA=EFF>0?(totPT/(EFF*p.totalTrucks))*100:0;
+  const lUtil=Array.from({length:p.numLoaders},(_,i)=>({id:i+1,util:TOTAL>0?(lBu[i]/TOTAL)*100:0,sess:lTL[i].length})),dUtil=Array.from({length:p.numDumps},(_,i)=>({id:i+1,util:TOTAL>0?(dBu[i]/TOTAL)*100:0,sess:dTL[i].length}));
+  const locSum={};['LP','MID','DP'].forEach(loc=>{const slots=ch[loc];const sessions=slots.reduce((s,sl)=>s+sl.sessions.length,0);const busy=slots.reduce((s,sl)=>s+sl.totalBusy,0);const utilArr=slots.map(sl=>TOTAL>0?(sl.totalBusy/TOTAL)*100:0);locSum[loc]={slots:slots.length,sessions,totalBusy:busy,avgUtil:utilArr.length?utilArr.reduce((a,b)=>a+b,0)/utilArr.length:0,perSlot:utilArr}});
+  const chargesByLoc={LP:0,MID:0,DP:0};T.forEach(t=>{chargesByLoc.LP+=t.chargesByLoc.LP;chargesByLoc.MID+=t.chargesByLoc.MID;chargesByLoc.DP+=t.chargesByLoc.DP});
+  const tPC=Math.max(1,Math.floor((p.batteryCapacity*((p.socMax-p.socMin)/100))/ePT));
+  return{trucks:T,TOTAL,EFF,days,totTon,totTrips,totLW,totDW,totCW,totCT,totBT,totRT,totPT,totIdleE,totDet,totAvail,totIdle,UA,cyc,tPC,lUtil,dUtil,locSum,chargesByLoc,locKm,eff,totProd:totPT}
+}
+
+function sweepMid(p,days=1){
+  const dist=Math.max(0.5,p.distLoaded);const step=Math.max(0.2,dist/20);const results=[];
+  const base={...p};
+  if((base.pilesAtMID||0)===0){if((base.pilesAtDP||0)>0){base.pilesAtMID=1;base.pilesAtDP=Math.max(0,base.pilesAtDP-1)}else if((base.pilesAtLP||0)>0){base.pilesAtMID=1;base.pilesAtLP=Math.max(0,base.pilesAtLP-1)}else base.pilesAtMID=1}
+  for(let km=0;km<=dist;km+=step){const r=runSim({...base,midKm:+km.toFixed(2)},days);results.push({km:+km.toFixed(2),tons:r.totTon,trips:r.totTrips,UA:r.UA,detKm:r.totDet,cw:r.totCW,midUtil:r.locSum.MID.avgUtil,midSess:r.locSum.MID.sessions})}
+  let best=results[0];for(const r of results){const score=r.tons-r.detKm*p.consLoaded*1000;const bScore=best.tons-best.detKm*p.consLoaded*1000;if(score>bScore)best=r}
+  return{results,best,borrowed:(p.pilesAtMID||0)===0}
+}
+
+/* fleetPileMatrix: iterasi DT count × pile count → matrix performance.
+   Untuk tiap pile config P di pileCounts: jalankan sim untuk DT 1..maxDT,
+   record trips/tons/UA. Hasil = matrix per pile count.
+   pileDist: 'allDP' (default v8.3) | 'evenLPDP' | 'optimal' (gunakan distribusi user) */
+function fleetPileMatrix(p, days=1, maxDT=18, pileCounts=[1,2,3,4,6,8], pileDist='allDP'){
+  const matrix={};
+  pileCounts.forEach(pc=>{
+    matrix[pc]=[];
+    for(let dt=1;dt<=maxDT;dt++){
+      let lp=0,mid=0,dp=pc;
+      if(pileDist==='evenLPDP'){
+        const half=Math.floor(pc/2);lp=half;dp=pc-half;
+      } else if(pileDist==='optimal' && (p.pilesAtLP+p.pilesAtMID+p.pilesAtDP)>0){
+        const total=Math.max(1,p.pilesAtLP+p.pilesAtMID+p.pilesAtDP);
+        lp=Math.round(pc*p.pilesAtLP/total);
+        mid=Math.round(pc*p.pilesAtMID/total);
+        dp=pc-lp-mid;if(dp<0){dp=0;mid=pc-lp}
+      }
+      const r=runSim({...p,totalTrucks:dt,pilesAtLP:lp,pilesAtMID:mid,pilesAtDP:dp},days);
+      matrix[pc].push({dt,tons:r.totTon,trips:r.totTrips,UA:r.UA});
+    }
+  });
+  return{matrix,pileCounts,maxDT};
+}
+
+/* sweepPiles: cari distribusi pile (LP/MID/DP) optimal per total pile count.
+   Untuk tiap total N (1..maxTotal), eksplor semua kombinasi (a,b,c) dimana a+b+c=N. */
+function sweepPiles(p,days=1,maxTotal=6){
+  const results=[];
+  for(let total=1;total<=maxTotal;total++){
+    let best=null;
+    for(let lp=0;lp<=total;lp++){
+      for(let mid=0;mid<=total-lp;mid++){
+        const dp=total-lp-mid;
+        const r=runSim({...p,pilesAtLP:lp,pilesAtMID:mid,pilesAtDP:dp},days);
+        const score=r.totTon-r.totDet*p.consLoaded*1000;
+        if(!best||score>best.score){
+          best={
+            lp,mid,dp,score,
+            tons:r.totTon,trips:r.totTrips,UA:r.UA,
+            cw:r.totCW,detKm:r.totDet,
+            sessLP:r.locSum.LP.sessions,sessMID:r.locSum.MID.sessions,sessDP:r.locSum.DP.sessions,
+            utilLP:r.locSum.LP.avgUtil,utilMID:r.locSum.MID.avgUtil,utilDP:r.locSum.DP.avgUtil
+          };
+        }
+      }
+    }
+    results.push({total,...best});
+  }
+  /* Sweet spot: titik di mana marginal benefit per pile < 2% (diminishing returns) */
+  let sweetSpot=results[results.length-1];
+  for(let i=1;i<results.length;i++){
+    const marginal=results[i-1].tons>0?(results[i].tons-results[i-1].tons)/results[i-1].tons:0;
+    if(marginal<0.02){sweetSpot=results[i-1];break}
+  }
+  /* Best overall by tons */
+  let bestOverall=results[0];
+  for(const r of results)if(r.tons>bestOverall.tons)bestOverall=r;
+  return{results,sweetSpot,bestOverall};
+}
+
+function Inp({label,unit,value,onChange,min=0,step=1}){return(<div style={{display:"flex",flexDirection:"column",gap:2}}><label style={{fontSize:10,color:C.dim,fontWeight:600}}>{label}</label><div style={{display:"flex",alignItems:"center",background:C.surface,borderRadius:6,border:`1px solid ${C.border}`,overflow:"hidden"}}><input type="number" value={value} min={min} step={step} onChange={e=>onChange(Number(e.target.value)||0)} style={{flex:1,background:"transparent",border:"none",color:C.white,padding:"6px 8px",fontSize:12,outline:"none",fontFamily:mono,width:"100%",minWidth:0}}/>{unit&&<span style={{padding:"0 7px",fontSize:9.5,color:C.cyanD,fontWeight:700,whiteSpace:"nowrap"}}>{unit}</span>}</div></div>)}
+function KPI({label,value,unit,color,icon,sub}){return(<div style={{background:C.card,borderRadius:10,padding:"11px 13px",border:`1px solid ${C.border}`,overflow:"hidden"}}><div style={{fontSize:9,color:C.dim,fontWeight:600,marginBottom:2}}>{icon} {label}</div><div style={{display:"flex",alignItems:"baseline",gap:3}}><span style={{fontSize:19,fontWeight:800,color:color||C.cyan,fontFamily:mono,lineHeight:1}}>{typeof value==="number"?value.toLocaleString("id-ID",{maximumFractionDigits:1}):value}</span>{unit&&<span style={{fontSize:9.5,color:C.dim}}>{unit}</span>}</div>{sub&&<div style={{fontSize:8.5,color:C.muted,marginTop:2}}>{sub}</div>}</div>)}
+function PP({value,onChange}){return(<div style={{display:"flex",gap:3}}>{[{d:1,l:"1 Hari"},{d:2,l:"2 Hari"},{d:7,l:"1 Minggu"},{d:30,l:"1 Bulan"}].map(({d,l})=>(<button key={d} onClick={()=>onChange(d)} style={{padding:"4px 9px",fontSize:9.5,fontWeight:700,background:value===d?C.cyan+"22":C.surface,color:value===d?C.cyan:C.dim,border:`1px solid ${value===d?C.cyan+"55":C.border}`,borderRadius:5,cursor:"pointer"}}>{l}</button>))}</div>)}
+function Sec({title,children}){return(<div><div style={{fontSize:9,color:C.cyan,fontWeight:800,marginBottom:6,letterSpacing:1,textTransform:"uppercase"}}>{title}</div>{children}</div>)}
+function fmtT(m){const d=Math.floor(m/1440),h=(6+Math.floor((m%1440)/60))%24,mn=Math.round(m%60);return`${d>0?`D${d+1} `:""}${String(h).padStart(2,"0")}:${String(mn).padStart(2,"0")}`}
+
+function Gantt({trucks,sh,days,TOTAL}){const totalH=sh*days,step=days<=1?2:days<=2?4:24,hrs=[];for(let h=0;h<=totalH;h+=step)hrs.push(h);const fH=h=>{const d=Math.floor(h/24),hr=(6+h%24)%24;return days<=2?`${d>0?`D${d+1} `:""}${String(hr).padStart(2,"0")}:00`:`D${d+1}`};return(<div style={{overflowX:"auto",overflowY:"auto",maxHeight:560}}><div style={{minWidth:days<=2?700:850}}><div style={{marginLeft:56,marginBottom:4,position:"relative",height:14}}>{hrs.map(h=>(<div key={h} style={{position:"absolute",left:`${(h/totalH)*100}%`,transform:"translateX(-50%)"}}><span style={{fontSize:8,color:C.muted,fontFamily:mono,fontWeight:600}}>{fH(h)}</span></div>))}</div><div style={{marginTop:2}}>{trucks.map(tr=>(<div key={tr.id} style={{display:"flex",alignItems:"center",gap:4,marginBottom:1}}><div style={{width:50,fontSize:9,color:C.dim,textAlign:"right",fontWeight:700,flexShrink:0,fontFamily:mono}}>DT-{String(tr.id).padStart(2,"0")}</div><div style={{flex:1,height:14,background:C.surface,borderRadius:2,position:"relative",overflow:"hidden",border:`1px solid ${C.border}`}}>{tr.log.map((en,i)=>{const l=(en.t0/TOTAL)*100,w=(en.d/TOTAL)*100,s=STEP[en.e]||STEP.idle;return(<div key={i} title={`${s.l}:${en.d.toFixed(1)}m${en.loc?' @'+LOC_LABEL[en.loc]:''}`} style={{position:"absolute",left:`${l}%`,width:`${Math.max(w,.08)}%`,height:"100%",background:s.c,opacity:.8}}/>)})}</div><div style={{width:32,fontSize:8,color:C.dim,fontFamily:mono,flexShrink:0,textAlign:"right"}}>{tr.trips}t</div></div>))}</div><div style={{display:"flex",flexWrap:"wrap",gap:5,marginTop:6,marginLeft:56}}>{Object.entries(STEP).map(([k,v])=>(<div key={k} style={{display:"flex",alignItems:"center",gap:3,fontSize:7.5,color:C.dim}}><div style={{width:7,height:7,borderRadius:2,background:v.c,opacity:.8}}/>{v.l}</div>))}</div></div></div>)}
+
+function UABar({r}){const t=r.totAvail;if(t<=0)return null;const sg=[{l:"Produktif",v:r.totProd,c:C.green},{l:"Antri Loader⚡",v:r.totLW,c:C.amber},{l:"Antri Dump⚡",v:r.totDW,c:"#ff6e40"},{l:"Charging",v:r.totCT,c:C.purple},{l:"Antri Charge",v:r.totCW,c:C.red},{l:"Shift Change",v:r.totBT,c:"#5c6bc0"},{l:"Istirahat",v:r.totRT,c:C.teal},{l:"Idle",v:r.totIdle,c:C.muted}];return(<div><div style={{display:"flex",height:22,borderRadius:6,overflow:"hidden",border:`1px solid ${C.border}`}}>{sg.map(s=>{const p=(s.v/t)*100;if(p<.15)return null;return(<div key={s.l} title={`${s.l}:${p.toFixed(1)}%`} style={{width:`${p}%`,background:s.c,opacity:.75,minWidth:p>1?2:0}}/>)})}</div><div style={{display:"flex",flexWrap:"wrap",gap:5,marginTop:4}}>{sg.map(s=>(<div key={s.l} style={{display:"flex",alignItems:"center",gap:3,fontSize:8.5,color:C.dim}}><div style={{width:7,height:7,borderRadius:2,background:s.c,opacity:.75}}/>{s.l}:<strong style={{color:s.c}}>{((s.v/t)*100).toFixed(1)}%</strong></div>))}</div></div>)}
+
+/* ===== ANALYSIS ENGINE — interpret KPIs into root-cause findings & recommendations ===== */
+function analyzeKPI(r, p){
+  const t = r.totAvail || 1;
+  const pct = v => (v/t)*100;
+  const idlePct = pct(r.totIdle);
+  const cwPct = pct(r.totCW);
+  const ctPct = pct(r.totCT);
+  const lwPct = pct(r.totLW);
+  const dwPct = pct(r.totDW);
+  const btPct = pct(r.totBT);
+  const rtPct = pct(r.totRT);
+  const findings = [];
+
+  /* IDLE analysis */
+  if(idlePct > 5){
+    const reasons = [];
+    if(r.totTrips < p.totalTrucks * 4) reasons.push('cycle terlalu panjang vs shift');
+    if(r.avgSOC && r.avgSOC < p.socMin + 10) reasons.push('truck habis di akhir shift (kena idle)');
+    if(p.staggerMin === 0 && p.totalTrucks > 4) reasons.push('stagger=0 → semua truck bersamaan');
+    if(r.totCW > r.totProd * 0.2) reasons.push('antri charge tinggi → truck telat balik');
+    findings.push({
+      sev: idlePct>20?'tinggi':idlePct>10?'sedang':'rendah',
+      icon: '😴', title: 'IDLE TIME', color: C.muted,
+      pct: idlePct.toFixed(1)+'%',
+      why: reasons.length ? reasons.join(', ') : 'truck stand-by saat menunggu kondisi siap (cycle pendek vs shift, atau tail-end shift)',
+      fix: idlePct>15 ? 'Stagger start lebih besar, atau tambah produksi (kurangi cycle / tambah loader)' : 'Wajar untuk fleet besar dengan cycle pendek'
+    });
+  }
+
+  /* ANTRI CHARGE analysis */
+  if(cwPct > 1 || r.totCW > 30){
+    const totalSlots = (r.eff?.LP||0) + (r.eff?.MID||0) + (r.eff?.DP||0);
+    const cycleTime = r.cyc || 1;
+    const arrivalRate = p.totalTrucks / Math.max(1, r.tPC * cycleTime);
+    const reasons = [];
+    if(totalSlots < Math.ceil(p.totalTrucks/r.tPC)) reasons.push(`slot charger (${totalSlots}) kurang vs kebutuhan (~${Math.ceil(p.totalTrucks/r.tPC)})`);
+    if(p.tCharge > cycleTime * 0.6) reasons.push(`charge time (${p.tCharge}m) ≥ 60% cycle (${cycleTime.toFixed(0)}m) → bottleneck`);
+    if((p.gunsPerDT||3) >= (p.gunsPerPile||2)) reasons.push(`1 DT butuh ${p.gunsPerDT} gun ≥ ${p.gunsPerPile} gun/pile → satu DT block satu pile`);
+    if((r.locSum?.LP?.slots||0)+(r.locSum?.MID?.slots||0)===0) reasons.push('semua pile di DP → tidak ada opportunistic charging on-route');
+    findings.push({
+      sev: cwPct>10?'tinggi':cwPct>3?'sedang':'rendah',
+      icon: '⏳', title: 'ANTRI CHARGE', color: C.red,
+      pct: cwPct.toFixed(1)+'% · '+r.totCW.toFixed(0)+'m total',
+      why: reasons.length ? reasons.join('; ') : 'truck antri di charger karena pile penuh atau gun konflik',
+      fix: cwPct>5 ? `Tambah ${Math.max(1,Math.ceil(p.totalTrucks/r.tPC) - totalSlots)} pile, atau kurangi tCharge, atau distribusi pile ke LP/MID untuk paralel` : 'Wajar untuk fleet besar dengan 1 lokasi charger'
+    });
+  }
+
+  /* CHARGING (productive time) — bukan antri tapi durasi charging itu sendiri */
+  if(ctPct > 10){
+    const tripsPerChg = r.tPC || 1;
+    findings.push({
+      sev: ctPct>25?'tinggi':ctPct>15?'sedang':'rendah',
+      icon: '🔋', title: 'CHARGING DURATION', color: C.purple,
+      pct: ctPct.toFixed(1)+'% · '+r.totCT.toFixed(0)+'m total',
+      why: `tCharge=${p.tCharge}m, ${tripsPerChg} trip per charge cycle, SOC ${p.socMin}→${p.socMax}% range`,
+      fix: ctPct>20 ? 'Naikkan SOC max (lebih lama antar charge), atau pakai fast charger (kurangi tCharge), atau perbesar baterai' : 'Charging adalah cost-of-doing-business EV — fokus reduksi antri-nya'
+    });
+  }
+
+  /* ANTRI LOADER */
+  if(lwPct > 2 || r.totLW > 60){
+    const reasons = [];
+    if(p.totalTrucks > p.numLoaders * 7) reasons.push(`${p.totalTrucks} DT vs ${p.numLoaders} loader → ratio ${(p.totalTrucks/p.numLoaders).toFixed(1)}:1 (target ≤7:1)`);
+    if(p.tLoad + (p.tAntriLoader||0) > 14) reasons.push(`loading time ${(p.tLoad+(p.tAntriLoader||0))}m (penalty antri ${p.tAntriLoader||0}m)`);
+    if(p.staggerMin === 0) reasons.push('stagger=0 → truck datang bersamaan');
+    findings.push({
+      sev: lwPct>10?'tinggi':lwPct>5?'sedang':'rendah',
+      icon: '⛏️', title: 'ANTRI LOADER', color: C.amber,
+      pct: lwPct.toFixed(1)+'% · '+r.totLW.toFixed(0)+'m total',
+      why: reasons.length ? reasons.join('; ') : 'truck antri di loader',
+      fix: lwPct>7 ? `Tambah loader (current ${p.numLoaders}), atau kurangi tLoad, atau stagger start` : 'Antrian rendah, fleet seimbang'
+    });
+  }
+
+  /* ANTRI DUMP */
+  if(dwPct > 2 || r.totDW > 60){
+    const reasons = [];
+    if(p.totalTrucks > p.numDumps * 10) reasons.push(`${p.totalTrucks} DT vs ${p.numDumps} dump → ratio ${(p.totalTrucks/p.numDumps).toFixed(1)}:1 (target ≤10:1)`);
+    if(p.tDump + (p.tAntriDump||0) > 8) reasons.push(`dump time ${(p.tDump+(p.tAntriDump||0))}m (penalty antri ${p.tAntriDump||0}m)`);
+    findings.push({
+      sev: dwPct>8?'tinggi':dwPct>4?'sedang':'rendah',
+      icon: '🪣', title: 'ANTRI DUMP', color: '#ff6e40',
+      pct: dwPct.toFixed(1)+'% · '+r.totDW.toFixed(0)+'m total',
+      why: reasons.length ? reasons.join('; ') : 'truck antri di dumping point',
+      fix: dwPct>5 ? `Tambah dump unit (current ${p.numDumps}), atau kurangi tDump` : 'Antrian rendah'
+    });
+  }
+
+  /* DETOUR analysis */
+  if(r.totDet > 1){
+    const reasons = [];
+    if((r.locSum?.LP?.slots||0)+(r.locSum?.MID?.slots||0)+(r.locSum?.DP?.slots||0) <= 1) reasons.push('hanya 1 lokasi charger → critical-SOC charge dipaksa ke DP');
+    if((p.midKm||0) <= 0 || (p.midKm||0) >= p.distLoaded) reasons.push(`midKm ${p.midKm} di luar rute [0, ${p.distLoaded}] → MID dianggap off-route, kena detour penalty`);
+    findings.push({
+      sev: r.totDet>20?'tinggi':r.totDet>5?'sedang':'rendah',
+      icon: '🛣️', title: 'DETOUR ke CHARGER', color: C.cyan,
+      pct: r.totDet.toFixed(1)+' km total',
+      why: reasons.length ? reasons.join('; ') : 'critical-SOC charge memaksa truck ke DP charger (di luar opportunistic on-route)',
+      fix: r.totDet>10 ? 'Distribusi pile ke LP/MID/DP → opportunistic on-route charging mengurangi critical-SOC trigger' : 'Detour minimal, distribusi pile sudah optimal'
+    });
+  }
+
+  /* MID POSITION effectiveness */
+  if((r.locSum?.MID?.slots||0) > 0){
+    const midUsage = r.locSum.MID.avgUtil;
+    const midSessions = r.chargesByLoc?.MID || 0;
+    const midKm = p.midKm || 0;
+    const reasons = [];
+    const optimalRange = [p.distLoaded*0.35, p.distLoaded*0.65];
+    if(midKm < optimalRange[0]) reasons.push(`MID di km ${midKm} terlalu dekat LP (optimal range ${optimalRange[0].toFixed(1)}-${optimalRange[1].toFixed(1)} km)`);
+    if(midKm > optimalRange[1]) reasons.push(`MID di km ${midKm} terlalu dekat DP (optimal range ${optimalRange[0].toFixed(1)}-${optimalRange[1].toFixed(1)} km)`);
+    if(midUsage < 20) reasons.push(`MID utilization hanya ${midUsage.toFixed(1)}% (under-used, slot terbuang)`);
+    if(midUsage > 80) reasons.push(`MID utilization ${midUsage.toFixed(1)}% (over-used, tambah pile di MID)`);
+    findings.push({
+      sev: midUsage>80||midUsage<10?'sedang':midUsage>60?'baik':'rendah',
+      icon: '🛣️', title: 'MID POSITION EFFECTIVENESS', color: '#ff6e40',
+      pct: `km ${midKm} · util ${midUsage.toFixed(1)}% · ${midSessions} sessions`,
+      why: reasons.length ? reasons.join('; ') : `MID di km ${midKm} bekerja baik. ${midSessions} truck charging di MID, on-route tanpa detour. Split haul: LP→MID (${midKm.toFixed(1)}km) + MID→DP (${(p.distLoaded-midKm).toFixed(1)}km).`,
+      fix: midUsage<10 ? 'MID hampir tidak terpakai → pertimbangkan pindah pile ke LP atau DP' : (midUsage>80 ? 'MID over-used → tambah 1 pile lagi di MID untuk paralel charging' : 'Jalankan tab "🎯 Mid Opt" untuk konfirmasi posisi optimal')
+    });
+  }
+
+  /* SHIFT CHANGE & REST */
+  if(btPct + rtPct > 0){
+    findings.push({
+      sev: 'rendah',
+      icon: '⏸️', title: 'SHIFT CHANGE & ISTIRAHAT', color: '#5c6bc0',
+      pct: (btPct+rtPct).toFixed(1)+'% · SC '+r.totBT.toFixed(0)+'m + Rest '+r.totRT.toFixed(0)+'m',
+      why: `Mandatory break: SC 06:00 & 18:00 (${p.shiftChangeDur}m), rest 00:00 & 12:00 (${p.restBreakDur}m). <strong style="color:#5c6bc0">UNIT BERHENTI total</strong> — loader/dump OFF, hauling OFF, charging OFF, no battery drain. Truck parkir selama break.`,
+      fix: 'Fixed schedule, tidak bisa di-optimize. Untuk minimasi dampak: jadwalkan charging selesai sebelum break window agar truck siap kerja saat break selesai.'
+    });
+  }
+
+  /* IDLE ENERGY drain */
+  if(r.totIdleE > 5){
+    const wastedKWh = r.totIdleE;
+    const wastedKmEquiv = wastedKWh / Math.max(0.5, p.consEmpty);
+    findings.push({
+      sev: r.totIdleE>30?'tinggi':r.totIdleE>15?'sedang':'rendah',
+      icon: '🔌', title: 'IDLE ENERGY DRAIN', color: C.red,
+      pct: wastedKWh.toFixed(1)+' kWh · ~'+wastedKmEquiv.toFixed(1)+' km equivalent',
+      why: `Battery drain ${p.idleConsKwMin} kW/min saat antri loader & dump (unit ON). Total antri produktif: ${(r.totLW+r.totDW).toFixed(0)} menit.`,
+      fix: r.totIdleE>20 ? 'Auto-shutdown saat antri >5 min, atau kurangi idleConsKwMin' : 'Wajar untuk kondisi mining'
+    });
+  }
+
+  /* UA Overall */
+  let uaCat = 'baik', uaC = C.green;
+  if(r.UA < 50){ uaCat = 'kurang'; uaC = C.red; }
+  else if(r.UA < 70){ uaCat = 'cukup'; uaC = C.amber; }
+  findings.unshift({
+    sev: uaCat,
+    icon: '📈', title: 'OVERALL UA (Use of Availability)', color: uaC,
+    pct: r.UA.toFixed(1)+'%',
+    why: `Produktif ${(pct(r.totProd)).toFixed(1)}% dari ${(t/60).toFixed(0)} jam fleet-hours. Sisa loss: antri ${(lwPct+dwPct+cwPct).toFixed(1)}%, charging ${ctPct.toFixed(1)}%, break ${(btPct+rtPct).toFixed(1)}%, idle ${idlePct.toFixed(1)}%.`,
+    fix: r.UA < 70 ? 'Fokus pada loss tertinggi → lihat finding berurutan di bawah' : 'UA sehat, fokus efisiensi minor'
+  });
+
+  return findings;
+}
+
+function AnalysisPanel({findings}){
+  const sevColor = {tinggi:C.red, sedang:C.amber, rendah:C.green, baik:C.green, cukup:C.amber, kurang:C.red};
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:6}}>
+      {findings.map((f,i)=>(
+        <div key={i} style={{background:C.surface,borderRadius:7,padding:10,border:`1px solid ${C.border}`,borderLeft:`3px solid ${f.color}`}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:6,marginBottom:5}}>
+            <div style={{display:"flex",alignItems:"center",gap:6}}>
+              <span style={{fontSize:14}}>{f.icon}</span>
+              <span style={{fontSize:11,fontWeight:800,color:f.color,letterSpacing:.3}}>{f.title}</span>
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:6}}>
+              <span style={{fontFamily:mono,fontSize:11,fontWeight:700,color:C.white}}>{f.pct}</span>
+              <span style={{padding:"1px 6px",borderRadius:3,fontSize:8,fontWeight:700,background:(sevColor[f.sev]||C.amber)+"22",color:sevColor[f.sev]||C.amber,textTransform:"uppercase",letterSpacing:.5}}>{f.sev}</span>
+            </div>
+          </div>
+          <div style={{fontSize:10,color:C.dim,lineHeight:1.55,marginBottom:4}}><span style={{color:C.cyan,fontWeight:700}}>💡 Kenapa: </span>{f.why}</div>
+          <div style={{fontSize:10,color:C.dim,lineHeight:1.55}}><span style={{color:C.green,fontWeight:700}}>✅ Rekomendasi: </span>{f.fix}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+const LS_EV="ev_sim_v9_loc_p_v1";
+function loadSavedEV(){try{const raw=localStorage.getItem(LS_EV);if(!raw)return DEF;const s=JSON.parse(raw);return{...DEF,...s}}catch(e){return DEF}}
+function clearSavedEV(){try{localStorage.removeItem(LS_EV)}catch(e){}}
+
+function App(){
+  const[p,setP]=useState(loadSavedEV),[r,setR]=useState(null),[tab,setTab]=useState("kpi"),[dD,setDD]=useState(1),[dR,setDR]=useState(null),[gD,setGD]=useState(1),[gR,setGR]=useState(null),[showIn,setSI]=useState(true),[simR,setSimR]=useState(false),[saveTs,setSaveTs]=useState(0),[sweep,setSweep]=useState(null),[sweepR,setSweepR]=useState(false),[pileSweep,setPileSweep]=useState(null),[pileSweepR,setPileSweepR]=useState(false),[maxTotal,setMaxTotal]=useState(6);
+  const up=useCallback((k,v)=>setP(pp=>({...pp,[k]:v})),[]);
+  useEffect(()=>{const t=setTimeout(()=>{try{localStorage.setItem(LS_EV,JSON.stringify(p));setSaveTs(Date.now())}catch(e){}},400);return()=>clearTimeout(t)},[p]);
+  const resetParams=useCallback(()=>{if(!confirm("Reset semua parameter ke default? Autosave akan dihapus."))return;clearSavedEV();setP(DEF);setSaveTs(0);setSweep(null)},[]);
+  const simulate=useCallback(async()=>{setSimR(true);await new Promise(d=>setTimeout(d,30));const res=runSim(p,1);setR(res);setDR(res);setDD(1);setGR(res);setGD(1);setTab("kpi");setSimR(false)},[p]);
+  const chD=useCallback(d=>{setDD(d);setDR(runSim(p,d))},[p]);
+  const chG=useCallback(d=>{setGD(d);setGR(runSim(p,d))},[p]);
+  useEffect(()=>{const res=runSim(DEF,1);setR(res);setDR(res);setGR(res)},[]);
+  const runSweep=useCallback(()=>{setSweepR(true);setTimeout(()=>{try{setSweep(sweepMid(p,1))}catch(e){console.error(e)}finally{setSweepR(false)}},50)},[p]);
+  const applyBest=useCallback(()=>{if(!sweep)return;up('midKm',sweep.best.km)},[sweep,up]);
+  const runPileSweep=useCallback(()=>{setPileSweepR(true);setTimeout(()=>{try{setPileSweep(sweepPiles(p,1,maxTotal))}catch(e){console.error(e)}finally{setPileSweepR(false)}},50)},[p,maxTotal]);
+  const[fleetMx,setFleetMx]=useState(null),[fleetMxR,setFleetMxR]=useState(false),[fleetMxMaxDT,setFleetMxMaxDT]=useState(18),[fleetMxMetric,setFleetMxMetric]=useState('trips'),[fleetMxDist,setFleetMxDist]=useState('allDP');
+  const runFleetMx=useCallback(()=>{setFleetMxR(true);setTimeout(()=>{try{setFleetMx(fleetPileMatrix(p,1,fleetMxMaxDT,[1,2,3,4,6,8],fleetMxDist))}catch(e){console.error(e)}finally{setFleetMxR(false)}},50)},[p,fleetMxMaxDT,fleetMxDist]);
+  const applyPileBest=useCallback(()=>{if(!pileSweep)return;const b=pileSweep.sweetSpot;setP(pp=>({...pp,pilesAtLP:b.lp,pilesAtMID:b.mid,pilesAtDP:b.dp}))},[pileSweep]);
+  const applyPileMax=useCallback(()=>{if(!pileSweep)return;const b=pileSweep.bestOverall;setP(pp=>({...pp,pilesAtLP:b.lp,pilesAtMID:b.mid,pilesAtDP:b.dp}))},[pileSweep]);
+
+  const slotsLP=Math.max(0,Math.floor((p.pilesAtLP||0)*(p.gunsPerPile||2)/(p.gunsPerDT||3)));
+  const slotsMID=Math.max(0,Math.floor((p.pilesAtMID||0)*(p.gunsPerPile||2)/(p.gunsPerDT||3)));
+  const slotsDP=Math.max(0,Math.floor((p.pilesAtDP||0)*(p.gunsPerPile||2)/(p.gunsPerDT||3)));
+
+  const sec={background:C.card,borderRadius:12,padding:13,border:`1px solid ${C.border}`,marginBottom:10},g3={display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(145px,1fr))",gap:6};
+  const tabs=[{id:"kpi",l:"📊 Dashboard"},{id:"gantt",l:"📅 Gantt"},{id:"charging",l:"🔌 Charging"},{id:"optimize",l:"🎯 Mid Opt"},{id:"pileopt",l:"🔋 Pile Opt"},{id:"trucks",l:"🚛 Trucks"}];
+
+  return(<div style={{minHeight:"100vh",background:C.bg,color:C.white,fontFamily:"'Segoe UI',system-ui,sans-serif",padding:"12px 10px",maxWidth:1100,margin:"0 auto"}}>
+  <div style={{textAlign:"center",marginBottom:14}}>
+    <div style={{fontSize:9,color:C.cyanD,fontWeight:700,letterSpacing:3,textTransform:"uppercase"}}>Mining Fleet Intelligence · Pile Location v9.0</div>
+    <h1 style={{fontSize:22,fontWeight:900,margin:"4px 0",background:`linear-gradient(135deg,${C.cyan},${C.green})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>EV Hauling Simulator — Charge in Place + Midpoint</h1>
+    <p style={{color:C.dim,fontSize:10}}>©2026 Ir. Fransiscus Saferius S.T.</p>
+  </div>
+  <div style={{display:"flex",justifyContent:"flex-end",alignItems:"center",gap:8,marginBottom:6}}>
+    <span style={{fontSize:10,fontFamily:mono,color:saveTs?C.green:C.dim,fontWeight:700}}>{saveTs?`● Saved ${new Date(saveTs).toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}`:'● Autosave ready'}</span>
+    <button onClick={resetParams} style={{padding:"2px 8px",fontSize:9.5,fontWeight:700,background:"transparent",color:C.red,border:`1px solid ${C.red}55`,borderRadius:4,cursor:"pointer"}}>↺ Reset</button>
+  </div>
+  <div style={{background:C.amber+"11",border:`1px solid ${C.amber}33`,borderRadius:6,padding:"6px 10px",marginBottom:10,fontSize:9,color:C.amber,lineHeight:1.6}}><strong>Constraints:</strong> 1TL=1DT · 1Dump=1DT · 1Pile={p.gunsPerPile}Gun · 1DT={p.gunsPerDT}Gun · SC 06&18:00 · Rest 12&00:00 · <strong style={{color:C.red}}>Battery drain HANYA antri loader & dump</strong> (unit ON) · <strong style={{color:'#ff6e40'}}>Pile di LP/MID/DP</strong> · <strong style={{color:'#5c6bc0'}}>Saat SC / Istirahat → UNIT BERHENTI total (no work, no charging, no drain)</strong></div>
+
+  <div style={sec}><div onClick={()=>setSI(!showIn)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}}><h2 style={{fontSize:12,fontWeight:800,margin:0,color:C.cyan}}>📋 Input</h2><span style={{color:C.dim,transform:showIn?"rotate(180deg)":"none",transition:"transform .2s"}}>▾</span></div>
+  {showIn&&(<div style={{marginTop:10,display:"flex",flexDirection:"column",gap:12}}>
+    <Sec title="1. FLEET"><div style={g3}><Inp label="Jumlah Truck" unit="unit" value={p.totalTrucks} onChange={v=>up("totalTrucks",v)} min={1}/><Inp label="Operasi" unit="jam" value={p.shiftH} onChange={v=>up("shiftH",v)} min={1}/><Inp label="PA" unit="%" value={p.paUnit} onChange={v=>up("paUnit",v)}/><Inp label="Stagger" unit="mnt" value={p.staggerMin} onChange={v=>up("staggerMin",v)} min={0}/></div></Sec>
+    <Sec title="2. EV"><div style={g3}><Inp label="Payload" unit="ton" value={p.payload} onChange={v=>up("payload",v)}/><Inp label="Baterai" unit="kWh" value={p.batteryCapacity} onChange={v=>up("batteryCapacity",v)}/><Inp label="Kons.K" unit="kWh/km" value={p.consEmpty} onChange={v=>up("consEmpty",v)} step={0.1}/><Inp label="Kons.M" unit="kWh/km" value={p.consLoaded} onChange={v=>up("consLoaded",v)} step={0.1}/><Inp label="Speed K" unit="km/j" value={p.spdEmpty} onChange={v=>up("spdEmpty",v)}/><Inp label="Speed M" unit="km/j" value={p.spdLoaded} onChange={v=>up("spdLoaded",v)}/><Inp label="SOC Min" unit="%" value={p.socMin} onChange={v=>up("socMin",v)}/><Inp label="SOC Max" unit="%" value={p.socMax} onChange={v=>up("socMax",v)}/></div></Sec>
+    <Sec title="3. JARAK"><div style={g3}><Inp label="Kosong" unit="km" value={p.distEmpty} onChange={v=>up("distEmpty",v)} step={0.5}/><Inp label="Muatan" unit="km" value={p.distLoaded} onChange={v=>up("distLoaded",v)} step={0.5}/></div></Sec>
+    <Sec title="4. RESOURCES"><div style={g3}><Inp label="Loader" unit="unit" value={p.numLoaders} onChange={v=>up("numLoaders",v)} min={1}/><Inp label="Loading" unit="mnt" value={p.tLoad} onChange={v=>up("tLoad",v)}/><Inp label="Antri Loader" unit="mnt" value={p.tAntriLoader||0} onChange={v=>up("tAntriLoader",v)} min={0} step={0.5}/><Inp label="Dump" unit="unit" value={p.numDumps} onChange={v=>up("numDumps",v)} min={1}/><Inp label="Dump T" unit="mnt" value={p.tDump} onChange={v=>up("tDump",v)}/><Inp label="Antri Dumping" unit="mnt" value={p.tAntriDump||0} onChange={v=>up("tAntriDump",v)} min={0} step={0.5}/></div></Sec>
+    <Sec title="5. CHARGING LOCATION 🗺️"><div style={g3}><Inp label="Pile @ LP" unit="unit" value={p.pilesAtLP||0} onChange={v=>up("pilesAtLP",v)} min={0}/><Inp label="Pile @ MID" unit="unit" value={p.pilesAtMID||0} onChange={v=>up("pilesAtMID",v)} min={0}/><Inp label="Posisi MID" unit="km" value={p.midKm||0} onChange={v=>up("midKm",v)} step={0.1} min={0}/><Inp label="Pile @ DP" unit="unit" value={p.pilesAtDP||0} onChange={v=>up("pilesAtDP",v)} min={0}/><Inp label="Charge" unit="mnt" value={p.tCharge} onChange={v=>up("tCharge",v)}/><Inp label="SOC Warn" unit="%" value={p.socWarn||30} onChange={v=>up("socWarn",v)} min={0}/></div><div style={{fontSize:9,color:C.muted,marginTop:6,lineHeight:1.6}}>Slot konkuren: <strong style={{color:C.purple}}>LP {slotsLP}</strong> · <strong style={{color:"#ff6e40"}}>MID {slotsMID}</strong> · <strong style={{color:C.pink}}>DP {slotsDP}</strong>. Truck pilih charger ber-cost terendah (queue wait + detour round-trip). <strong style={{color:C.amber}}>SOC Warn</strong>: trigger opportunistic top-up bila SOC dibawah threshold.</div></Sec>
+    <Sec title="6. SHIFT & ISTIRAHAT"><div style={g3}><Inp label="Shift Change" unit="mnt" value={p.shiftChangeDur} onChange={v=>up("shiftChangeDur",v)} min={0}/><Inp label="Istirahat" unit="mnt" value={p.restBreakDur} onChange={v=>up("restBreakDur",v)} min={0}/></div></Sec>
+    <Sec title="7. IDLE BATTERY"><div style={g3}><Inp label="Idle Cons" unit="kW/mnt" value={p.idleConsKwMin} onChange={v=>up("idleConsKwMin",v)} min={0} step={0.01}/></div></Sec>
+    <button onClick={simulate} disabled={simR} style={{padding:"11px 20px",fontSize:12,fontWeight:800,color:C.bg,background:simR?"#555":`linear-gradient(135deg,${C.cyan},${C.green})`,border:"none",borderRadius:8,cursor:simR?"wait":"pointer"}}>{simR?"⏳ Running...":"▶ SIMULASI"}</button>
+  </div>)}</div>
+
+  {r&&(<React.Fragment>
+    <div style={{display:"flex",gap:2,marginBottom:8,flexWrap:"wrap"}}>{tabs.map(t=>(<button key={t.id} onClick={()=>setTab(t.id)} style={{padding:"5px 10px",fontSize:9.5,fontWeight:700,background:tab===t.id?C.cyan+"1a":C.card,color:tab===t.id?C.cyan:C.dim,border:`1px solid ${tab===t.id?C.cyan+"55":C.border}`,borderRadius:6,cursor:"pointer",whiteSpace:"nowrap"}}>{t.l}</button>))}</div>
+
+    {tab==="kpi"&&dR&&(<div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}><h3 style={{fontSize:12,fontWeight:800,color:C.cyan,margin:0}}>📊 Dashboard</h3><PP value={dD} onChange={chD}/></div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(120px,1fr))",gap:5,marginBottom:10}}>
+        <KPI label="UA" value={dR.UA.toFixed(1)} unit="%" color={dR.UA>70?C.green:dR.UA>50?C.amber:C.red} icon="📈"/>
+        <KPI label="Produksi" value={dR.totTon} unit="ton" color={C.green} icon="🪨" sub={`${dD}d`}/>
+        <KPI label="Prod/DT" value={(p.payload*(60/Math.max(1,dR.cyc))).toFixed(1)} unit="ton/jam" color={C.green} icon="🚛" sub="teoritis"/>
+        <KPI label="Trip/DT" value={(dR.totTrips/Math.max(1,p.totalTrucks)).toFixed(1)} unit="x" color={C.cyan} icon="🔄" sub={`${dD}d`}/>
+        <KPI label="Trips" value={dR.totTrips} unit="x" color={C.cyan} icon="🔄"/>
+        <KPI label="Cycle" value={dR.cyc.toFixed(1)} unit="m" color={C.blue} icon="⏱️"/>
+        <KPI label="Trip/Chg" value={dR.tPC} unit="x" color={C.purple} icon="🔋"/>
+        <KPI label="Detour" value={dR.totDet.toFixed(1)} unit="km" color={C.cyan} icon="🛣️" sub="ke charger"/>
+        <KPI label="Idle E⚡" value={dR.totIdleE.toFixed(1)} unit="kWh" color={C.red} icon="🔌"/>
+        <KPI label="Charge Wait" value={dR.totCW.toFixed(0)} unit="m" color={C.red} icon="⏳"/>
+      </div>
+      <div style={sec}><h3 style={{fontSize:10,fontWeight:800,color:C.amber,margin:"0 0 6px"}}>Resources ({dD}d)</h3>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(80px,1fr))",gap:4}}>
+          {dR.lUtil.map(l=>(<div key={`l${l.id}`} style={{background:C.surface,borderRadius:5,padding:5,border:`1px solid ${C.border}`,textAlign:"center"}}><div style={{fontSize:7.5,color:C.purple,fontWeight:700}}>TL-{l.id}</div><div style={{fontSize:15,fontWeight:800,color:l.util>80?C.green:l.util>40?C.amber:C.red,fontFamily:mono}}>{l.util.toFixed(0)}%</div></div>))}
+          {dR.dUtil.map(d=>(<div key={`d${d.id}`} style={{background:C.surface,borderRadius:5,padding:5,border:`1px solid ${C.border}`,textAlign:"center"}}><div style={{fontSize:7.5,color:"#ff6e40",fontWeight:700}}>Dmp-{d.id}</div><div style={{fontSize:15,fontWeight:800,color:d.util>80?C.green:d.util>40?C.amber:C.red,fontFamily:mono}}>{d.util.toFixed(0)}%</div></div>))}
+          {['LP','MID','DP'].map(loc=>{const s=dR.locSum[loc];if(s.slots===0)return null;const lc=LOC_COLOR[loc];return(<div key={loc} style={{background:C.surface,borderRadius:5,padding:5,border:`1px solid ${C.border}`,textAlign:"center"}}><div style={{fontSize:7.5,color:lc,fontWeight:700}}>{loc} ({s.slots})</div><div style={{fontSize:15,fontWeight:800,color:s.avgUtil>80?C.green:s.avgUtil>40?C.amber:C.red,fontFamily:mono}}>{s.avgUtil.toFixed(0)}%</div></div>)})}
+        </div>
+      </div>
+      <div style={sec}><h3 style={{fontSize:10,fontWeight:800,color:C.cyan,margin:"0 0 6px"}}>Breakdown ({dD}d)</h3><UABar r={dR}/></div>
+      <div style={sec}>
+        <h3 style={{fontSize:11,fontWeight:800,color:C.amber,margin:"0 0 8px",display:"flex",alignItems:"center",gap:6}}>🔍 KPI Analysis · Kenapa Terjadi Loss?</h3>
+        <div style={{fontSize:9,color:C.dim,marginBottom:8,lineHeight:1.5}}>Root-cause analysis tiap komponen waktu. Severity: <strong style={{color:C.red}}>tinggi</strong> (perlu aksi segera) · <strong style={{color:C.amber}}>sedang</strong> (perlu perhatian) · <strong style={{color:C.green}}>rendah</strong> (normal/dapat di-tolerate).</div>
+        <AnalysisPanel findings={analyzeKPI(dR,p)}/>
+      </div>
+    </div>)}
+
+    {tab==="gantt"&&gR&&(<div style={sec}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}><h3 style={{fontSize:12,fontWeight:800,color:C.cyan,margin:0}}>📅 Gantt</h3><PP value={gD} onChange={chG}/></div><Gantt trucks={gR.trucks} sh={p.shiftH} days={gD} TOTAL={gR.TOTAL}/></div>)}
+
+    {tab==="charging"&&dR&&(<div>
+      <div style={sec}>
+        <h3 style={{fontSize:12,fontWeight:800,color:C.cyan,margin:"0 0 12px"}}>🔌 Charging Activity per Lokasi</h3>
+        {/* Route schematic */}
+        <div style={{display:"flex",alignItems:"center",gap:8,padding:"18px 4px",position:"relative",background:C.surface,borderRadius:8,marginBottom:14}}>
+          <div style={{flex:"0 0 110px",textAlign:"center"}}><div style={{fontSize:24}}>⛏️</div><div style={{fontSize:10,fontWeight:800,color:C.purple,marginTop:2}}>LP (km 0)</div>{slotsLP>0&&<div style={{marginTop:4,padding:"2px 6px",background:C.purple+"22",color:C.purple,fontSize:9,fontWeight:700,borderRadius:3,display:"inline-block",fontFamily:mono}}>🔌 {p.pilesAtLP}p · {slotsLP} slot</div>}</div>
+          <div style={{flex:1,height:6,background:`linear-gradient(90deg,${C.purple},${C.pink})`,borderRadius:3,position:"relative"}}>
+            <div style={{position:"absolute",top:-6,left:`${Math.max(0,Math.min(100,(p.midKm/Math.max(1,p.distLoaded))*100))}%`,transform:"translateX(-50%)",display:"flex",flexDirection:"column",alignItems:"center"}}><div style={{fontSize:16}}>🛣️</div><div style={{fontSize:9,color:"#ff6e40",fontWeight:800,whiteSpace:"nowrap"}}>MID ({p.midKm} km)</div>{slotsMID>0&&<div style={{padding:"1px 5px",background:"#ff6e4022",color:"#ff6e40",fontSize:8,fontWeight:700,borderRadius:2,marginTop:1,fontFamily:mono,whiteSpace:"nowrap"}}>🔌 {p.pilesAtMID}p · {slotsMID} slot</div>}</div>
+            <div style={{position:"absolute",bottom:-18,left:"50%",transform:"translateX(-50%)",fontSize:9,color:C.dim,fontFamily:mono,whiteSpace:"nowrap"}}>{p.distLoaded} km loaded · {p.distEmpty} km empty</div>
+          </div>
+          <div style={{flex:"0 0 110px",textAlign:"center"}}><div style={{fontSize:24}}>🪣</div><div style={{fontSize:10,fontWeight:800,color:C.pink,marginTop:2}}>DP (km {p.distLoaded})</div>{slotsDP>0&&<div style={{marginTop:4,padding:"2px 6px",background:C.pink+"22",color:C.pink,fontSize:9,fontWeight:700,borderRadius:3,display:"inline-block",fontFamily:mono}}>🔌 {p.pilesAtDP}p · {slotsDP} slot</div>}</div>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+          {['LP','MID','DP'].map(loc=>{const s=dR.locSum[loc];const charges=dR.chargesByLoc[loc];const lc=LOC_COLOR[loc];const noSlot=s.slots===0;return(
+            <div key={loc} style={{padding:10,background:C.surface,border:`1px solid ${lc}33`,borderLeft:`3px solid ${lc}`,borderRadius:6,opacity:noSlot?0.5:1}}>
+              <div style={{fontSize:10,fontWeight:800,color:lc,marginBottom:6}}>{LOC_LABEL[loc]} (km {dR.locKm[loc].toFixed(1)})</div>
+              {noSlot?<div style={{fontSize:9,color:C.dim,fontStyle:"italic"}}>Tidak ada pile</div>:
+                <>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,fontSize:9}}>
+                    <div><div style={{color:C.dim}}>Slot</div><div style={{fontFamily:mono,fontWeight:700,color:C.white,fontSize:12}}>{s.slots}</div></div>
+                    <div><div style={{color:C.dim}}>Sessions</div><div style={{fontFamily:mono,fontWeight:700,color:lc,fontSize:12}}>{charges}</div></div>
+                    <div><div style={{color:C.dim}}>Utilization</div><div style={{fontFamily:mono,fontWeight:700,color:s.avgUtil>80?C.red:s.avgUtil>50?C.amber:C.green,fontSize:12}}>{s.avgUtil.toFixed(1)}%</div></div>
+                    <div><div style={{color:C.dim}}>Busy</div><div style={{fontFamily:mono,fontWeight:700,color:C.white,fontSize:12}}>{s.totalBusy.toFixed(0)} min</div></div>
+                  </div>
+                </>}
+            </div>);})}
+        </div>
+      </div>
+    </div>)}
+
+    {tab==="optimize"&&(<div>
+      <div style={sec}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
+          <div>
+            <h3 style={{fontSize:12,fontWeight:800,color:C.cyan,margin:0}}>🎯 Midpoint Position Optimization</h3>
+            <div style={{fontSize:9,color:C.dim,marginTop:3,lineHeight:1.5}}>Sweep posisi MID dari 0 → {p.distLoaded} km. Setiap titik di-simulasi penuh.{(p.pilesAtMID||0)===0&&<span style={{color:C.amber}}> (Pile MID=0 → 1 pile borrowed sementara untuk what-if.)</span>}</div>
+          </div>
+          <div style={{display:"flex",gap:6}}>
+            <button onClick={runSweep} disabled={sweepR} style={{padding:"8px 14px",fontSize:11,fontWeight:800,color:C.bg,background:sweepR?"#555":`linear-gradient(135deg,${C.amber},${C.amberD})`,border:"none",borderRadius:6,cursor:sweepR?"wait":"pointer"}}>{sweepR?"⏳":"▶ Run Sweep"}</button>
+            {sweep&&<button onClick={applyBest} style={{padding:"8px 14px",fontSize:11,fontWeight:700,color:C.bg,background:`linear-gradient(135deg,${C.green},#0a8a4d)`,border:"none",borderRadius:6,cursor:"pointer"}}>✓ Apply Best ({sweep.best.km} km)</button>}
+          </div>
+        </div>
+        {sweep&&(<>
+          <div style={{background:`linear-gradient(90deg,${C.green}22,${C.cyan}22)`,border:`2px solid ${C.green}`,borderRadius:8,padding:12,marginBottom:12}}>
+            <div style={{fontSize:10,fontWeight:800,color:C.green,marginBottom:6,letterSpacing:.5}}>🎯 REKOMENDASI POSISI MID</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(110px,1fr))",gap:10}}>
+              <div><div style={{fontSize:8,color:C.dim}}>Best Position</div><div style={{fontSize:22,fontWeight:800,color:C.amber,fontFamily:mono}}>{sweep.best.km} <span style={{fontSize:12}}>km</span></div></div>
+              <div><div style={{fontSize:8,color:C.dim}}>Tonase</div><div style={{fontSize:16,fontWeight:800,color:C.green,fontFamily:mono}}>{sweep.best.tons.toLocaleString('id-ID')} <span style={{fontSize:10}}>ton</span></div></div>
+              <div><div style={{fontSize:8,color:C.dim}}>UA</div><div style={{fontSize:16,fontWeight:800,color:C.cyan,fontFamily:mono}}>{sweep.best.UA.toFixed(1)}<span style={{fontSize:10}}>%</span></div></div>
+              <div><div style={{fontSize:8,color:C.dim}}>Detour Total</div><div style={{fontSize:16,fontWeight:800,color:C.amber,fontFamily:mono}}>{sweep.best.detKm.toFixed(1)} <span style={{fontSize:10}}>km</span></div></div>
+              <div><div style={{fontSize:8,color:C.dim}}>MID Sessions</div><div style={{fontSize:16,fontWeight:800,color:"#ff6e40",fontFamily:mono}}>{sweep.best.midSess}</div></div>
+            </div>
+          </div>
+          <div style={{fontSize:10,fontWeight:700,color:C.amber,marginBottom:6}}>📊 Tonase vs Posisi MID (km)</div>
+          <div style={{background:C.surface,borderRadius:6,padding:10,marginBottom:10}}>
+            <div style={{display:"flex",alignItems:"flex-end",gap:2,height:160}}>
+              {sweep.results.map((r,i)=>{const mxT=Math.max(...sweep.results.map(x=>x.tons));const h=mxT>0?(r.tons/mxT)*100:0;const isB=r.km===sweep.best.km;return(<div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
+                <div style={{fontSize:7,color:isB?C.green:C.dim,fontFamily:mono,fontWeight:isB?800:400,whiteSpace:"nowrap"}}>{r.tons.toLocaleString('id-ID',{maximumFractionDigits:0})}</div>
+                <div style={{width:"100%",height:`${h}%`,background:isB?`linear-gradient(180deg,${C.green},${C.cyan})`:C.amber,borderRadius:"2px 2px 0 0",boxShadow:isB?`0 0 6px ${C.green}`:"none"}} title={`midKm=${r.km}: ${r.tons.toLocaleString('id-ID')} ton, UA ${r.UA.toFixed(1)}%, detour ${r.detKm.toFixed(1)} km`}/>
+                <div style={{fontSize:7,color:isB?C.green:C.dim,fontFamily:mono,fontWeight:isB?800:400}}>{r.km}</div>
+              </div>)})}
+            </div>
+            <div style={{fontSize:8,color:C.dim,marginTop:4,textAlign:"center"}}>Posisi MID (km) ↑ · 🟢 = optimum</div>
+          </div>
+          <div style={{overflowX:"auto",maxHeight:320,background:C.surface,borderRadius:6,border:`1px solid ${C.border}`}}>
+            <table style={{fontFamily:mono,fontSize:9,width:"100%"}}>
+              <thead style={{position:"sticky",top:0,background:C.cardAlt}}>
+                <tr style={{color:C.amber}}>
+                  <th style={{padding:"5px 8px",textAlign:"left"}}>MID km</th>
+                  <th style={{padding:"5px 8px",textAlign:"right"}}>Tons</th>
+                  <th style={{padding:"5px 8px",textAlign:"right"}}>Trips</th>
+                  <th style={{padding:"5px 8px",textAlign:"right"}}>UA %</th>
+                  <th style={{padding:"5px 8px",textAlign:"right"}}>Detour</th>
+                  <th style={{padding:"5px 8px",textAlign:"right"}}>MID Sess</th>
+                  <th style={{padding:"5px 8px",textAlign:"right"}}>MID Util</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sweep.results.map((r,i)=>(<tr key={i} style={{borderBottom:`1px solid ${C.border}`,background:r.km===sweep.best.km?C.green+"22":"transparent"}}>
+                  <td style={{padding:"4px 8px",color:r.km===sweep.best.km?C.green:C.white,fontWeight:r.km===sweep.best.km?800:400}}>{r.km}{r.km===sweep.best.km?" 🎯":""}</td>
+                  <td style={{padding:"4px 8px",textAlign:"right",color:C.green}}>{r.tons.toLocaleString('id-ID')}</td>
+                  <td style={{padding:"4px 8px",textAlign:"right"}}>{r.trips}</td>
+                  <td style={{padding:"4px 8px",textAlign:"right"}}>{r.UA.toFixed(1)}</td>
+                  <td style={{padding:"4px 8px",textAlign:"right",color:C.cyan}}>{r.detKm.toFixed(1)}</td>
+                  <td style={{padding:"4px 8px",textAlign:"right",color:"#ff6e40"}}>{r.midSess}</td>
+                  <td style={{padding:"4px 8px",textAlign:"right"}}>{r.midUtil.toFixed(1)}</td>
+                </tr>))}
+              </tbody>
+            </table>
+          </div>
+        </>)}
+        {!sweep&&!sweepR&&<div style={{padding:18,textAlign:"center",color:C.dim,fontSize:10,fontStyle:"italic"}}>Klik <strong>▶ Run Sweep</strong> untuk mencari posisi MID optimal.</div>}
+      </div>
+    </div>)}
+
+    {tab==="pileopt"&&(<div>
+      <div style={sec}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
+          <div>
+            <h3 style={{fontSize:12,fontWeight:800,color:C.cyan,margin:0}}>🔋 Pile Distribution Optimization</h3>
+            <div style={{fontSize:9,color:C.dim,marginTop:3,lineHeight:1.5}}>Sweep total pile count 1..N. Untuk tiap total, eksplor semua kombinasi distribusi (LP/MID/DP). Pilih konfigurasi optimal per area & jumlah.</div>
+          </div>
+          <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+            <div style={{display:"flex",flexDirection:"column",gap:2,fontSize:10}}>
+              <label style={{color:C.dim,fontWeight:600}}>Max Total Pile</label>
+              <input type="number" value={maxTotal} min={1} max={12} onChange={e=>setMaxTotal(Math.max(1,Math.min(12,Number(e.target.value)||6)))} style={{background:C.surface,border:`1px solid ${C.border}`,color:C.white,padding:"5px 8px",borderRadius:4,fontFamily:mono,fontSize:11,width:70}}/>
+            </div>
+            <button onClick={runPileSweep} disabled={pileSweepR} style={{padding:"8px 14px",fontSize:11,fontWeight:800,color:C.bg,background:pileSweepR?"#555":`linear-gradient(135deg,${C.amber},${C.amberD})`,border:"none",borderRadius:6,cursor:pileSweepR?"wait":"pointer"}}>{pileSweepR?"⏳":"▶ Run Sweep"}</button>
+            {pileSweep&&<button onClick={applyPileBest} style={{padding:"8px 12px",fontSize:10,fontWeight:700,color:C.bg,background:`linear-gradient(135deg,${C.green},#0a8a4d)`,border:"none",borderRadius:6,cursor:"pointer"}} title="Apply sweet spot config (best ROI per pile)">✓ Sweet Spot</button>}
+            {pileSweep&&<button onClick={applyPileMax} style={{padding:"8px 12px",fontSize:10,fontWeight:700,color:C.bg,background:`linear-gradient(135deg,${C.cyan},${C.cyanD})`,border:"none",borderRadius:6,cursor:"pointer"}} title="Apply highest-tonase config">✓ Max Output</button>}
+          </div>
+        </div>
+        {pileSweep&&(<>
+          {/* Recommendation cards */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
+            <div style={{background:`linear-gradient(90deg,${C.green}22,${C.cyan}22)`,border:`2px solid ${C.green}`,borderRadius:8,padding:12}}>
+              <div style={{fontSize:10,fontWeight:800,color:C.green,marginBottom:5,letterSpacing:.5}}>🎯 SWEET SPOT (Best ROI)</div>
+              <div style={{fontSize:9,color:C.dim,marginBottom:6,lineHeight:1.4}}>Titik di mana marginal benefit per pile mulai &lt; 2%</div>
+              <div style={{display:"flex",alignItems:"baseline",gap:8}}>
+                <span style={{fontSize:24,fontWeight:900,color:C.green,fontFamily:mono}}>{pileSweep.sweetSpot.total}</span><span style={{fontSize:11,color:C.dim}}>pile</span>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:4,marginTop:6}}>
+                <div style={{background:C.purple+"22",border:`1px solid ${C.purple}55`,borderRadius:4,padding:"4px 6px",textAlign:"center"}}><div style={{fontSize:8,color:C.purple,fontWeight:700}}>LP</div><div style={{fontSize:14,fontWeight:800,color:C.white,fontFamily:mono}}>{pileSweep.sweetSpot.lp}</div></div>
+                <div style={{background:"#ff6e4022",border:"1px solid #ff6e4055",borderRadius:4,padding:"4px 6px",textAlign:"center"}}><div style={{fontSize:8,color:"#ff6e40",fontWeight:700}}>MID</div><div style={{fontSize:14,fontWeight:800,color:C.white,fontFamily:mono}}>{pileSweep.sweetSpot.mid}</div></div>
+                <div style={{background:C.pink+"22",border:`1px solid ${C.pink}55`,borderRadius:4,padding:"4px 6px",textAlign:"center"}}><div style={{fontSize:8,color:C.pink,fontWeight:700}}>DP</div><div style={{fontSize:14,fontWeight:800,color:C.white,fontFamily:mono}}>{pileSweep.sweetSpot.dp}</div></div>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginTop:6,fontSize:9,color:C.dim}}>
+                <div>Tonase: <strong style={{color:C.green,fontFamily:mono}}>{pileSweep.sweetSpot.tons.toLocaleString('id-ID')}</strong></div>
+                <div>UA: <strong style={{color:C.cyan,fontFamily:mono}}>{pileSweep.sweetSpot.UA.toFixed(1)}%</strong></div>
+              </div>
+            </div>
+            <div style={{background:`linear-gradient(90deg,${C.cyan}22,${C.amber}22)`,border:`2px solid ${C.cyan}`,borderRadius:8,padding:12}}>
+              <div style={{fontSize:10,fontWeight:800,color:C.cyan,marginBottom:5,letterSpacing:.5}}>🚀 MAX OUTPUT (Highest Tons)</div>
+              <div style={{fontSize:9,color:C.dim,marginBottom:6,lineHeight:1.4}}>Konfigurasi dengan tonase tertinggi (overkill mungkin)</div>
+              <div style={{display:"flex",alignItems:"baseline",gap:8}}>
+                <span style={{fontSize:24,fontWeight:900,color:C.cyan,fontFamily:mono}}>{pileSweep.bestOverall.total}</span><span style={{fontSize:11,color:C.dim}}>pile</span>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:4,marginTop:6}}>
+                <div style={{background:C.purple+"22",border:`1px solid ${C.purple}55`,borderRadius:4,padding:"4px 6px",textAlign:"center"}}><div style={{fontSize:8,color:C.purple,fontWeight:700}}>LP</div><div style={{fontSize:14,fontWeight:800,color:C.white,fontFamily:mono}}>{pileSweep.bestOverall.lp}</div></div>
+                <div style={{background:"#ff6e4022",border:"1px solid #ff6e4055",borderRadius:4,padding:"4px 6px",textAlign:"center"}}><div style={{fontSize:8,color:"#ff6e40",fontWeight:700}}>MID</div><div style={{fontSize:14,fontWeight:800,color:C.white,fontFamily:mono}}>{pileSweep.bestOverall.mid}</div></div>
+                <div style={{background:C.pink+"22",border:`1px solid ${C.pink}55`,borderRadius:4,padding:"4px 6px",textAlign:"center"}}><div style={{fontSize:8,color:C.pink,fontWeight:700}}>DP</div><div style={{fontSize:14,fontWeight:800,color:C.white,fontFamily:mono}}>{pileSweep.bestOverall.dp}</div></div>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginTop:6,fontSize:9,color:C.dim}}>
+                <div>Tonase: <strong style={{color:C.green,fontFamily:mono}}>{pileSweep.bestOverall.tons.toLocaleString('id-ID')}</strong></div>
+                <div>UA: <strong style={{color:C.cyan,fontFamily:mono}}>{pileSweep.bestOverall.UA.toFixed(1)}%</strong></div>
+              </div>
+            </div>
+          </div>
+
+          {/* Tonase vs total piles bar chart */}
+          <div style={{fontSize:10,fontWeight:700,color:C.amber,marginBottom:6}}>📊 Tonase vs Total Pile Count</div>
+          <div style={{background:C.surface,borderRadius:6,padding:10,marginBottom:10}}>
+            <div style={{display:"flex",alignItems:"flex-end",gap:4,height:160}}>
+              {pileSweep.results.map((r,i)=>{const mxT=Math.max(...pileSweep.results.map(x=>x.tons));const h=mxT>0?(r.tons/mxT)*100:0;const isSS=r.total===pileSweep.sweetSpot.total;const isMx=r.total===pileSweep.bestOverall.total;return(<div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+                <div style={{fontSize:8,color:isSS?C.green:isMx?C.cyan:C.dim,fontFamily:mono,fontWeight:(isSS||isMx)?800:400,whiteSpace:"nowrap"}}>{r.tons.toLocaleString('id-ID',{maximumFractionDigits:0})}</div>
+                <div style={{width:"100%",height:`${h}%`,background:isSS?`linear-gradient(180deg,${C.green},${C.cyan})`:isMx?`linear-gradient(180deg,${C.cyan},${C.amber})`:C.amber,borderRadius:"2px 2px 0 0",boxShadow:(isSS||isMx)?`0 0 8px ${isSS?C.green:C.cyan}`:"none"}} title={`Total ${r.total} pile: LP=${r.lp}, MID=${r.mid}, DP=${r.dp}, tons=${r.tons.toLocaleString('id-ID')}, UA=${r.UA.toFixed(1)}%`}/>
+                <div style={{fontSize:8,color:isSS?C.green:isMx?C.cyan:C.dim,fontFamily:mono,fontWeight:(isSS||isMx)?800:400}}>{r.total}p</div>
+                <div style={{fontSize:7,color:C.muted,fontFamily:mono}}>{r.lp}·{r.mid}·{r.dp}</div>
+              </div>)})}
+            </div>
+            <div style={{fontSize:8,color:C.dim,marginTop:4,textAlign:"center"}}>Total Pile ↑ · 🟢 Sweet Spot · 🔵 Max Output · Label: LP·MID·DP</div>
+          </div>
+
+          {/* Detail table */}
+          <div style={{overflowX:"auto",maxHeight:340,background:C.surface,borderRadius:6,border:`1px solid ${C.border}`}}>
+            <table style={{fontFamily:mono,fontSize:9,width:"100%"}}>
+              <thead style={{position:"sticky",top:0,background:C.cardAlt}}>
+                <tr style={{color:C.amber}}>
+                  <th style={{padding:"5px 8px",textAlign:"center"}}>Total</th>
+                  <th style={{padding:"5px 8px",textAlign:"center",color:C.purple}}>LP</th>
+                  <th style={{padding:"5px 8px",textAlign:"center",color:"#ff6e40"}}>MID</th>
+                  <th style={{padding:"5px 8px",textAlign:"center",color:C.pink}}>DP</th>
+                  <th style={{padding:"5px 8px",textAlign:"right"}}>Tons</th>
+                  <th style={{padding:"5px 8px",textAlign:"right"}}>Trips</th>
+                  <th style={{padding:"5px 8px",textAlign:"right"}}>UA %</th>
+                  <th style={{padding:"5px 8px",textAlign:"right",color:C.red}}>Chg Wait</th>
+                  <th style={{padding:"5px 8px",textAlign:"right",color:C.cyan}}>Detour km</th>
+                  <th style={{padding:"5px 8px",textAlign:"right",color:C.purple}}>LP Sess</th>
+                  <th style={{padding:"5px 8px",textAlign:"right",color:"#ff6e40"}}>MID Sess</th>
+                  <th style={{padding:"5px 8px",textAlign:"right",color:C.pink}}>DP Sess</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pileSweep.results.map((r,i)=>{const isSS=r.total===pileSweep.sweetSpot.total;const isMx=r.total===pileSweep.bestOverall.total;return(<tr key={i} style={{borderBottom:`1px solid ${C.border}`,background:isSS?C.green+"22":isMx?C.cyan+"22":"transparent"}}>
+                  <td style={{padding:"4px 8px",textAlign:"center",color:isSS?C.green:isMx?C.cyan:C.white,fontWeight:(isSS||isMx)?800:400}}>{r.total}{isSS?" 🎯":isMx?" 🚀":""}</td>
+                  <td style={{padding:"4px 8px",textAlign:"center",color:C.purple,fontWeight:700}}>{r.lp}</td>
+                  <td style={{padding:"4px 8px",textAlign:"center",color:"#ff6e40",fontWeight:700}}>{r.mid}</td>
+                  <td style={{padding:"4px 8px",textAlign:"center",color:C.pink,fontWeight:700}}>{r.dp}</td>
+                  <td style={{padding:"4px 8px",textAlign:"right",color:C.green}}>{r.tons.toLocaleString('id-ID')}</td>
+                  <td style={{padding:"4px 8px",textAlign:"right"}}>{r.trips}</td>
+                  <td style={{padding:"4px 8px",textAlign:"right"}}>{r.UA.toFixed(1)}</td>
+                  <td style={{padding:"4px 8px",textAlign:"right",color:C.red}}>{r.cw.toFixed(0)}</td>
+                  <td style={{padding:"4px 8px",textAlign:"right",color:C.cyan}}>{r.detKm.toFixed(1)}</td>
+                  <td style={{padding:"4px 8px",textAlign:"right"}}>{r.sessLP}</td>
+                  <td style={{padding:"4px 8px",textAlign:"right"}}>{r.sessMID}</td>
+                  <td style={{padding:"4px 8px",textAlign:"right"}}>{r.sessDP}</td>
+                </tr>)})}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Marginal benefit insight */}
+          <div style={{marginTop:10,padding:10,background:C.amber+"11",border:`1px solid ${C.amber}33`,borderRadius:6,fontSize:9.5,color:C.dim,lineHeight:1.6}}>
+            <strong style={{color:C.amber}}>💡 Cara baca:</strong> Tiap baris = best distribusi untuk total pile tsb. 🎯 <strong style={{color:C.green}}>Sweet Spot</strong> = jumlah pile yang give-best ROI (sebelum marginal benefit drop). 🚀 <strong style={{color:C.cyan}}>Max Output</strong> = jumlah pile yang produce max tonase (mungkin overkill kalau marginal benefit kecil). Pilih sesuai budget CAPEX vs OPEX target.
+          </div>
+        </>)}
+        {!pileSweep&&!pileSweepR&&<div style={{padding:18,textAlign:"center",color:C.dim,fontSize:10,fontStyle:"italic"}}>Klik <strong>▶ Run Sweep</strong> untuk eksplor distribusi pile optimal. Sweep akan jalankan <strong>~{((maxTotal*(maxTotal+1)*(maxTotal+2))/6)}</strong> simulasi (semua kombinasi LP/MID/DP untuk total 1..{maxTotal} pile).</div>}
+      </div>
+
+      {/* ===== Fleet Sizing Matrix: DT count × Pile count ===== */}
+      <div style={sec}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
+          <div>
+            <h3 style={{fontSize:12,fontWeight:800,color:C.cyan,margin:0}}>📈 Fleet Sizing × Pile Count</h3>
+            <div style={{fontSize:9,color:C.dim,marginTop:3,lineHeight:1.5}}>Iterasi <strong>jumlah DT 1..N</strong> untuk berbagai jumlah pile [1, 2, 3, 4, 6, 8]. Lihat saturation point: dimana tambah DT tidak berdampak signifikan untuk pile config tertentu.</div>
+          </div>
+          <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+            <div style={{display:"flex",flexDirection:"column",gap:2,fontSize:10}}><label style={{color:C.dim,fontWeight:600}}>Max DT</label><input type="number" value={fleetMxMaxDT} min={1} max={30} onChange={e=>setFleetMxMaxDT(Math.max(1,Math.min(30,Number(e.target.value)||18)))} style={{background:C.surface,border:`1px solid ${C.border}`,color:C.white,padding:"5px 8px",borderRadius:4,fontFamily:mono,fontSize:11,width:60}}/></div>
+            <div style={{display:"flex",flexDirection:"column",gap:2,fontSize:10}}><label style={{color:C.dim,fontWeight:600}}>Metric</label><select value={fleetMxMetric} onChange={e=>setFleetMxMetric(e.target.value)} style={{background:C.surface,border:`1px solid ${C.border}`,color:C.white,padding:"5px 8px",borderRadius:4,fontSize:11}}><option value="trips">Trips</option><option value="tons">Tons</option><option value="UA">UA %</option></select></div>
+            <div style={{display:"flex",flexDirection:"column",gap:2,fontSize:10}}><label style={{color:C.dim,fontWeight:600}}>Distribusi Pile</label><select value={fleetMxDist} onChange={e=>setFleetMxDist(e.target.value)} style={{background:C.surface,border:`1px solid ${C.border}`,color:C.white,padding:"5px 8px",borderRadius:4,fontSize:11}}><option value="allDP">All di DP</option><option value="evenLPDP">Split LP+DP</option><option value="optimal">Pakai user config (ratio)</option></select></div>
+            <button onClick={runFleetMx} disabled={fleetMxR} style={{padding:"8px 14px",fontSize:11,fontWeight:800,color:C.bg,background:fleetMxR?"#555":`linear-gradient(135deg,${C.cyan},${C.green})`,border:"none",borderRadius:6,cursor:fleetMxR?"wait":"pointer"}}>{fleetMxR?"⏳":"▶ Run"}</button>
+          </div>
+        </div>
+        {fleetMx&&(()=>{
+          const W=720,H=300,padL=46,padR=20,padT=28,padB=42,cW=W-padL-padR,cH=H-padT-padB;
+          const colors={1:C.cyan,2:C.green,3:C.amber,4:C.red,6:C.purple,8:"#e040fb"};
+          const allVals=[];fleetMx.pileCounts.forEach(pc=>fleetMx.matrix[pc].forEach(d=>allVals.push(d[fleetMxMetric])));
+          const maxV=Math.max(...allVals,1);const niceMax=Math.ceil(maxV/5)*5;
+          const metricLabel={trips:'Trips',tons:'Tons',UA:'UA %'}[fleetMxMetric];
+          return(<div style={{background:C.surface,borderRadius:8,padding:10,overflow:'auto'}}>
+            <svg width={W} height={H} style={{display:'block',maxWidth:'100%'}}>
+              {/* Grid */}
+              {[0,1,2,3,4,5].map(i=>{const y=padT+(cH/5)*i;const v=Math.round(niceMax*(5-i)/5);return(<g key={i}><line x1={padL} y1={y} x2={W-padR} y2={y} stroke={C.border} strokeWidth="0.5"/><text x={padL-4} y={y+3} fill={C.dim} fontSize="9" textAnchor="end" fontFamily={mono}>{v.toLocaleString('id-ID')}</text></g>)})}
+              {/* X axis labels */}
+              {Array.from({length:fleetMx.maxDT},(_,i)=>i+1).filter(dt=>dt===1||dt===fleetMx.maxDT||dt%Math.max(1,Math.floor(fleetMx.maxDT/15))===0).map(dt=>{const x=padL+((dt-1)/(fleetMx.maxDT-1))*cW;return(<text key={dt} x={x} y={H-padB+14} fill={C.dim} fontSize="9" textAnchor="middle" fontFamily={mono}>{dt}</text>)})}
+              <text x={W/2} y={H-4} fill={C.dim} fontSize="10" textAnchor="middle">DT count</text>
+              <text x={padL-32} y={padT-8} fill={C.dim} fontSize="10">{metricLabel}</text>
+              {/* Lines per pile count */}
+              {fleetMx.pileCounts.map(pc=>{const data=fleetMx.matrix[pc];const col=colors[pc]||C.white;const pts=data.map((d,i)=>{const x=padL+(i/Math.max(1,fleetMx.maxDT-1))*cW;const y=padT+cH-(d[fleetMxMetric]/niceMax)*cH;return`${x.toFixed(1)},${y.toFixed(1)}`}).join(' ');return(<g key={pc}><polyline points={pts} fill="none" stroke={col} strokeWidth="2"/>{data.map((d,i)=>{const x=padL+(i/Math.max(1,fleetMx.maxDT-1))*cW;const y=padT+cH-(d[fleetMxMetric]/niceMax)*cH;return(<circle key={i} cx={x} cy={y} r="2.5" fill={col}><title>{`${pc} pile · DT=${d.dt} → ${metricLabel}=${d[fleetMxMetric].toLocaleString('id-ID',{maximumFractionDigits:1})}`}</title></circle>)})}</g>)})}
+              {/* Legend */}
+              <g transform={`translate(${padL+10},${padT+8})`}>
+                {fleetMx.pileCounts.map((pc,i)=>(<g key={pc} transform={`translate(0,${i*14})`}><line x1="0" y1="5" x2="14" y2="5" stroke={colors[pc]||C.white} strokeWidth="2"/><text x="18" y="9" fill={C.dim} fontSize="10" fontFamily={mono}>{pc} pile</text></g>))}
+              </g>
+            </svg>
+            <div style={{fontSize:9,color:C.dim,marginTop:6,lineHeight:1.6}}><strong style={{color:C.amber}}>💡 Cara baca:</strong> Tiap garis = jumlah pile berbeda. X = jumlah DT. Y = {metricLabel}. <strong>Saturation point</strong> = di mana kurva mulai flat (tambah DT tidak signifikan). <strong>Optimal DT count</strong> per pile = sebelum saturation. Bila kurva 1 pile flat lebih cepat dari 4 pile → 1 pile = bottleneck.</div>
+          </div>);
+        })()}
+        {!fleetMx&&!fleetMxR&&<div style={{padding:18,textAlign:"center",color:C.dim,fontSize:10,fontStyle:"italic"}}>Klik <strong>▶ Run</strong> untuk generate fleet sizing matrix. ~{fleetMxMaxDT*6} simulasi.</div>}
+      </div>
+    </div>)}
+
+    {tab==="trucks"&&dR&&(<div style={sec}>
+      <h3 style={{fontSize:12,fontWeight:800,color:C.cyan,margin:"0 0 8px"}}>🚛 Per-Truck Detail</h3>
+      <div style={{overflowX:"auto"}}>
+        <table style={{fontFamily:mono,fontSize:9,width:"100%"}}>
+          <thead><tr style={{color:C.amber}}>
+            <th style={{padding:"6px",textAlign:"left"}}>DT</th><th style={{padding:"6px",textAlign:"right"}}>Trips</th><th style={{padding:"6px",textAlign:"right"}}>Tons</th><th style={{padding:"6px",textAlign:"right"}}>SOC</th><th style={{padding:"6px",textAlign:"right"}}>Charges</th>
+            <th style={{padding:"6px",textAlign:"right",color:LOC_COLOR.LP}}>@LP</th><th style={{padding:"6px",textAlign:"right",color:LOC_COLOR.MID}}>@MID</th><th style={{padding:"6px",textAlign:"right",color:LOC_COLOR.DP}}>@DP</th>
+            <th style={{padding:"6px",textAlign:"right"}}>ChgT</th><th style={{padding:"6px",textAlign:"right"}}>ChgW</th><th style={{padding:"6px",textAlign:"right",color:C.cyan}}>Detour</th><th style={{padding:"6px",textAlign:"right"}}>LdrW</th><th style={{padding:"6px",textAlign:"right"}}>DmpW</th>
+          </tr></thead>
+          <tbody>{dR.trucks.map(t=>(<tr key={t.id} style={{borderBottom:`1px solid ${C.border}`}}>
+            <td style={{padding:"4px 6px",color:C.white,fontWeight:700}}>DT-{t.id}</td>
+            <td style={{padding:"4px 6px",textAlign:"right"}}>{t.trips}</td>
+            <td style={{padding:"4px 6px",textAlign:"right",color:C.green}}>{t.ton}</td>
+            <td style={{padding:"4px 6px",textAlign:"right",color:t.soc<p.socMin?C.red:C.amber}}>{t.soc.toFixed(1)}%</td>
+            <td style={{padding:"4px 6px",textAlign:"right"}}>{t.cs}</td>
+            <td style={{padding:"4px 6px",textAlign:"right",color:LOC_COLOR.LP}}>{t.chargesByLoc.LP}</td>
+            <td style={{padding:"4px 6px",textAlign:"right",color:LOC_COLOR.MID}}>{t.chargesByLoc.MID}</td>
+            <td style={{padding:"4px 6px",textAlign:"right",color:LOC_COLOR.DP}}>{t.chargesByLoc.DP}</td>
+            <td style={{padding:"4px 6px",textAlign:"right"}}>{t.ct.toFixed(0)}</td>
+            <td style={{padding:"4px 6px",textAlign:"right",color:C.red}}>{t.cw.toFixed(0)}</td>
+            <td style={{padding:"4px 6px",textAlign:"right",color:C.cyan}}>{t.detKm.toFixed(2)}</td>
+            <td style={{padding:"4px 6px",textAlign:"right"}}>{t.lw.toFixed(0)}</td>
+            <td style={{padding:"4px 6px",textAlign:"right"}}>{t.dw.toFixed(0)}</td>
+          </tr>))}</tbody>
+        </table>
+      </div>
+    </div>)}
+
+  </React.Fragment>)}
+  </div>);
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+<script>
+(function(){
+  if(window.LocalFS) return; /* already loaded */
+  const IDB_NAME='app_fs_v1', IDB_STORE='handles';
+  function idbOpen(){return new Promise((res,rej)=>{const r=indexedDB.open(IDB_NAME,1);r.onupgradeneeded=e=>e.target.result.createObjectStore(IDB_STORE);r.onsuccess=e=>res(e.target.result);r.onerror=e=>rej(e.target.error)})}
+  async function idbGet(k){const db=await idbOpen();return new Promise((res,rej)=>{const r=db.transaction(IDB_STORE,'readonly').objectStore(IDB_STORE).get(k);r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)})}
+  async function idbSet(k,v){const db=await idbOpen();return new Promise((res,rej)=>{const r=db.transaction(IDB_STORE,'readwrite').objectStore(IDB_STORE).put(v,k);r.onsuccess=()=>res();r.onerror=()=>rej(r.error)})}
+  async function idbDel(k){const db=await idbOpen();return new Promise((res,rej)=>{const r=db.transaction(IDB_STORE,'readwrite').objectStore(IDB_STORE).delete(k);r.onsuccess=()=>res();r.onerror=()=>rej(r.error)})}
+  let dirHandle=null, connected=false;
+  const _setItem=localStorage.setItem.bind(localStorage);
+  const _removeItem=localStorage.removeItem.bind(localStorage);
+  const _clear=localStorage.clear.bind(localStorage);
+  function sanitize(n){return n.replace(/[\\/:*?"<>|]/g,'_')}
+  function isAppKey(k){return k && (k.startsWith('rc_')||k.startsWith('ev_sim')||k.startsWith('tbe_')||k.startsWith('fm_')||k.startsWith('mp_'))}
+  function supported(){return !!window.showDirectoryPicker}
+  async function verifyPerm(h){if(!h.queryPermission)return true;if((await h.queryPermission({mode:'readwrite'}))==='granted')return true;return (await h.requestPermission({mode:'readwrite'}))==='granted'}
+  async function saveFile(k,v){if(!dirHandle)return;try{const fh=await dirHandle.getFileHandle(sanitize(k)+'.json',{create:true});const w=await fh.createWritable();await w.write(typeof v==='string'?v:JSON.stringify(v,null,2));await w.close()}catch(e){console.warn('LocalFS save',k,e)}}
+  async function loadFile(k){if(!dirHandle)return null;try{const fh=await dirHandle.getFileHandle(sanitize(k)+'.json');return await(await fh.getFile()).text()}catch(e){return null}}
+  /* Monkey-patch localStorage to mirror app keys to folder */
+  localStorage.setItem=function(k,v){_setItem(k,v);if(connected&&isAppKey(k))saveFile(k,v)};
+  localStorage.removeItem=function(k){_removeItem(k);if(connected&&isAppKey(k)&&dirHandle){try{dirHandle.removeEntry(sanitize(k)+'.json')}catch(e){}}};
+  async function syncFromFolder(){if(!connected||!dirHandle)return 0;let n=0;try{for await(const e of dirHandle.values()){if(e.kind==='file'&&e.name.endsWith('.json')){const k=e.name.replace(/\.json$/,'');if(isAppKey(k)){const t=await(await e.getFile()).text();_setItem(k,t);n++}}}}catch(e){console.error(e)}return n}
+  async function uploadAllToFolder(){if(!connected)return 0;let n=0;for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(isAppKey(k)){await saveFile(k,localStorage.getItem(k));n++}}return n}
+  async function collectAppFiles(){if(!dirHandle)return[];const out=[];try{for await(const e of dirHandle.values()){if(e.kind==='file'&&e.name.endsWith('.json')){const k=e.name.replace(/\.json$/,'');if(isAppKey(k))out.push(k)}}}catch(e){}return out}
+  async function connect(){
+    if(!supported()){alert('File System Access tidak didukung. Pakai Chrome/Edge terbaru.');return false}
+    try{
+      const h=await window.showDirectoryPicker({mode:'readwrite',startIn:'documents'});
+      dirHandle=h;await idbSet('dirHandle',h);connected=true;updateUI();
+      const files=await collectAppFiles();
+      if(files.length>0){
+        const ok=confirm(`Folder sudah berisi ${files.length} file aplikasi.\n\nYa  = Load dari folder (REPLACE data browser)\nNo  = Upload data browser saat ini ke folder (merge)`);
+        if(ok){await syncFromFolder();location.reload()} else {await uploadAllToFolder()}
+      } else {
+        const n=await uploadAllToFolder();
+        if(n>0) toast(`✅ ${n} data ter-upload ke folder ${h.name}. Permanent now.`);
+        else toast(`📂 Folder ${h.name} terhubung. Save berikutnya akan auto-sync.`);
+      }
+      return true
+    }catch(e){if(e.name!=='AbortError')console.error(e);return false}
+  }
+  async function disconnect(){if(!confirm('Disconnect folder? Data tetap di file, tapi save berikutnya hanya ke browser.'))return;dirHandle=null;connected=false;await idbDel('dirHandle');updateUI();toast('Folder disconnected. Mode: browser only.')}
+  async function autoConnect(){if(!supported())return false;try{const h=await idbGet('dirHandle');if(!h)return false;if(await verifyPerm(h)){dirHandle=h;connected=true;updateUI();await syncFromFolder();return true}}catch(e){}return false}
+  function toast(msg){const t=document.createElement('div');t.textContent=msg;t.style.cssText='position:fixed;bottom:14px;right:14px;background:#1c1917;color:#fef3c7;padding:10px 16px;border-left:3px solid #84cc16;border-radius:6px;font-size:12px;z-index:99999;box-shadow:0 4px 12px rgba(0,0,0,.5);font-family:system-ui';document.body.appendChild(t);setTimeout(()=>t.remove(),3500)}
+  function injectWidget(){
+    if(document.getElementById('localfs_widget'))return;
+    const d=document.createElement('div');
+    d.id='localfs_widget';
+    d.style.cssText='position:fixed;top:6px;right:6px;z-index:999998;background:rgba(15,15,15,0.92);backdrop-filter:blur(8px);border:1px solid #3d342a;border-radius:6px;padding:5px 8px;display:flex;gap:6px;align-items:center;font-size:10.5px;font-family:system-ui;color:#fef3c7;box-shadow:0 2px 8px rgba(0,0,0,.4)';
+    d.innerHTML='<span id="localfs_status" style="font-weight:700">⚠️ Browser only</span><button id="localfs_btn" style="padding:3px 8px;font-size:10px;font-weight:700;border:none;border-radius:4px;cursor:pointer;background:#0d9488;color:white">🔗 Connect Folder</button>';
+    document.body.appendChild(d);
+    updateUI();
+  }
+  function updateUI(){
+    const s=document.getElementById('localfs_status');
+    if(s){if(connected){s.innerHTML=`📂 <b style="color:#84cc16">${dirHandle?.name||'connected'}</b>`;s.title='Data ter-mirror ke folder lokal. Tidak hilang saat clear cache.'} else {s.innerHTML='⚠️ <b style="color:#f59e0b">Browser only</b>';s.title='Data hanya di browser. Klik Connect Folder untuk save permanent.'}}
+    const b=document.getElementById('localfs_btn');
+    if(b){b.textContent=connected?'🔌 Disconnect':'🔗 Connect Folder';b.onclick=connected?disconnect:connect;b.style.background=connected?'#dc2626':'#0d9488'}
+  }
+  window.LocalFS={connect,disconnect,autoConnect,supported,isConnected:()=>connected,folderName:()=>dirHandle?.name||'',uploadAll:uploadAllToFolder,syncFrom:syncFromFolder,updateUI};
+  window.addEventListener('DOMContentLoaded',async()=>{injectWidget();await autoConnect()});
+})();
+</script>
+</body></html>
