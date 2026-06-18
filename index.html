@@ -1619,7 +1619,7 @@
         <p class="text-xs mt-1" style="color:#a8a29e">Berbasis <b>PTY_Calc</b>. Pilih kategori (satuan otomatis menyesuaikan). Ubah input biru → semua hasil dihitung ulang.</p>
       </div>
       <label class="text-xs" style="color:#fbbf24;font-weight:700">Kategori
-        <select id="pc_category" class="num-in mt-1" style="font-weight:700" onchange="prodCalcRender()">
+        <select id="pc_category" class="num-in mt-1" style="font-weight:700" onchange="pcSwitchCategory()">
           <option value="ob">⛏️ OB — Overburden (BCM)</option>
           <option value="coal_get">🪨 Coal Getting (Ton)</option>
         </select>
@@ -3518,6 +3518,25 @@ const fmt4 = n => isFinite(n) ? n.toLocaleString('en-US',{maximumFractionDigits:
 /* ================================================================
    CALCULATOR PRODUKSI — replikasi PTY_Calc.xlsx (OB & Coal Getting)
    ================================================================ */
+/* Per-kategori input store — tiap kategori (OB, Coal Getting) ingat inputnya sendiri.
+   Ganti kategori → simpan input kategori lama, muat input kategori baru. */
+const PC_INPUT_IDS = ['pc_bucket','pc_eff_bucket','pc_ct_loader','pc_prep','pc_vessel','pc_eff_vessel',
+  'pc_dump_time','pc_dump_pos','pc_load_pos','pc_speed_empty','pc_speed_loaded','pc_distance',
+  'pc_pa','pc_ua','pc_mohh','pc_fleet','pc_years'];
+let pcStore = {};            /* { ob:{id:val,...}, coal_get:{...} } */
+let pcCurrentCat = 'ob';
+function pcReadInputs(){ const o={}; PC_INPUT_IDS.forEach(id=>{ const e=$(id); if(e) o[id]=e.value; }); return o; }
+function pcWriteInputs(obj){ if(!obj) return; PC_INPUT_IDS.forEach(id=>{ const e=$(id); if(e && obj[id]!=null && obj[id]!=='') e.value=obj[id]; }); }
+function pcSyncCurrent(){ if($('pc_category')) pcCurrentCat = $('pc_category').value || pcCurrentCat; pcStore[pcCurrentCat] = pcReadInputs(); }
+function pcSwitchCategory(){
+  const newCat = ($('pc_category')?.value) || 'ob';
+  pcStore[pcCurrentCat] = pcReadInputs();              /* simpan input kategori lama */
+  pcCurrentCat = newCat;
+  if(pcStore[newCat]) pcWriteInputs(pcStore[newCat]);  /* muat input kategori baru yang tersimpan */
+  else pcStore[newCat] = pcReadInputs();               /* pertama kali di kategori ini → pakai nilai sekarang sbg awal */
+  prodCalcRender();
+  if(typeof markDirty==='function') markDirty();
+}
 function prodCalcCompute(){
   const v = id => +($(id)?.value) || 0;
   const bucket=v('pc_bucket'), effB=v('pc_eff_bucket')/100, ctL=v('pc_ct_loader'), prep=v('pc_prep');
@@ -6392,7 +6411,9 @@ function snapshotScenario(){
             pc_category:($('pc_category')?.value||'ob'),pc_bucket:g('pc_bucket'),pc_eff_bucket:g('pc_eff_bucket'),pc_ct_loader:g('pc_ct_loader'),pc_prep:g('pc_prep'),
             pc_vessel:g('pc_vessel'),pc_eff_vessel:g('pc_eff_vessel'),pc_dump_time:g('pc_dump_time'),pc_dump_pos:g('pc_dump_pos'),pc_load_pos:g('pc_load_pos'),
             pc_speed_empty:g('pc_speed_empty'),pc_speed_loaded:g('pc_speed_loaded'),pc_distance:g('pc_distance'),
-            pc_pa:g('pc_pa'),pc_ua:g('pc_ua'),pc_mohh:g('pc_mohh'),pc_fleet:g('pc_fleet'),pc_years:g('pc_years')},
+            pc_pa:g('pc_pa'),pc_ua:g('pc_ua'),pc_mohh:g('pc_mohh'),pc_fleet:g('pc_fleet'),pc_years:g('pc_years'),
+            /* Simpan input PER-KATEGORI (capture kategori aktif dulu via pcSyncCurrent) */
+            pc_store:(pcSyncCurrent(),pcStore)},
     loader:{merk:g('l_merk'),model:g('l_model'),bucket:g('l_bucket'),eff:g('l_eff'),ct:g('l_ct'),pass:g('l_pass'),prep:g('l_prep')},
     hauler:{merk:g('h_merk'),model:g('h_model'),vessel:g('h_vessel'),eff:g('h_eff'),dt:g('h_dt'),dp:g('h_dp'),lp:g('h_lp'),ve:g('h_ve'),vl:g('h_vl'),dist:g('h_dist')},
     maintenance:g('maint'),
@@ -6616,6 +6637,18 @@ function _applyScenario(d){
     if(m.autoPM==='mekanik') delete m.autoPM;
     if(m.autoPM==='supervisor' && /^spv\s+plant\b/i.test(m.pos)) delete m.autoPM;
   });
+  /* PTY per-kategori restore — pulihkan store; data lama (tanpa pc_store) di-seed
+     dari nilai flat yang baru saja di-set (= kategori yang aktif saat disimpan). */
+  if(d.project){
+    pcCurrentCat = d.project.pc_category || 'ob';
+    if(d.project.pc_store && typeof d.project.pc_store==='object' && Object.keys(d.project.pc_store).length){
+      try { pcStore = JSON.parse(JSON.stringify(d.project.pc_store)); } catch(e){ pcStore = {}; }
+    } else {
+      pcStore = {}; pcStore[pcCurrentCat] = pcReadInputs();
+    }
+    if($('pc_category')) $('pc_category').value = pcCurrentCat;
+    pcWriteInputs(pcStore[pcCurrentCat]);
+  }
   _saveInFlight = false;
   return true;
 }
