@@ -1703,7 +1703,8 @@
   'use strict';
   var SUPABASE_URL = 'https://bdafxbhkzdqxkxsfoomr.supabase.co';
   var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJkYWZ4YmhremRxeGt4c2Zvb21yIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3NDM3NjcsImV4cCI6MjA5NzMxOTc2N30.C7OFhXNpRlaj9n05UFuQYehz0IUE3rqTs4SNi1tYKsQ';
-  var SYNC_KEYS = ['rc_projects_v1', 'rc_active_project_v1', 'rc_support_catalog_v1', 'rc_mp_catalog_v1', 'rc_project_history_v1'];
+  var SYNC_KEYS = ['rc_projects_v1', 'rc_active_project_v1', 'rc_support_catalog_v1', 'rc_mp_catalog_v1', 'rc_project_history_v1',
+    'rc_plant_manpower_v1', 'rc_maint_v1', 'rc_mess_rules_v1']; // katalog global yang memengaruhi perhitungan TCO
   var DEBOUNCE_MS = 1500;
 
   // Jalankan fn saat DOM siap; jika sudah lewat, jalankan sekarang.
@@ -1779,6 +1780,9 @@
       var cat = row.catalogs || {};
       if (cat.sup != null) _origSetItem('rc_support_catalog_v1', JSON.stringify(cat.sup));
       if (cat.mp != null) _origSetItem('rc_mp_catalog_v1', JSON.stringify(cat.mp));
+      if (cat.pm != null) _origSetItem('rc_plant_manpower_v1', JSON.stringify(cat.pm));
+      if (cat.maint != null) _origSetItem('rc_maint_v1', JSON.stringify(cat.maint));
+      if (cat.mess != null) _origSetItem('rc_mess_rules_v1', JSON.stringify(cat.mess));
       _origSetItem('rc_project_history_v1', JSON.stringify(row.history || {}));
       state.lastPulledAt = row.updated_at || null;
     } finally { state.suspend = false; }
@@ -1811,7 +1815,10 @@
         id: 'main',
         projects: lsGet('rc_projects_v1', {}),
         active: localStorage.getItem('rc_active_project_v1') || '',
-        catalogs: { sup: lsGet('rc_support_catalog_v1', null), mp: lsGet('rc_mp_catalog_v1', null) },
+        catalogs: {
+          sup: lsGet('rc_support_catalog_v1', null), mp: lsGet('rc_mp_catalog_v1', null),
+          pm: lsGet('rc_plant_manpower_v1', null), maint: lsGet('rc_maint_v1', null), mess: lsGet('rc_mess_rules_v1', null)
+        },
         history: lsGet('rc_project_history_v1', {}),
         updated_by: state.email,
         updated_at: new Date().toISOString()
