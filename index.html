@@ -1715,7 +1715,7 @@
 
   var sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   var _origSetItem = localStorage.setItem.bind(localStorage);
-  var state = { email: '', lastPulledAt: null, dirty: false, timer: null, suspend: false };
+  var state = { email: '', lastPulledAt: null, dirty: false, timer: null, suspend: false, isAdmin: false };
   var overlay = null, badge = null;
 
   function el(html) { var d = document.createElement('div'); d.innerHTML = html.trim(); return d.firstChild; }
@@ -1868,6 +1868,92 @@
     });
   }
 
+  // ---------- panel persetujuan (admin saja) ----------
+  function addAdminButton() {
+    if (!state.isAdmin || document.getElementById('rc-admin-btn')) return;
+    var b = el('<button id="rc-admin-btn" title="Kelola persetujuan anggota" style="position:fixed;bottom:80px;right:12px;z-index:9998;font:600 12px system-ui;padding:6px 12px;border-radius:999px;border:1px solid #3d342a;background:#14110e;color:#fbbf24;cursor:pointer">👤 Persetujuan</button>');
+    document.body.appendChild(b);
+    b.addEventListener('click', openAdminPanel);
+  }
+
+  function rowItem(emailText, actionBtn, color) {
+    var line = el('<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #29211b"></div>');
+    var span = document.createElement('span');
+    span.textContent = emailText;                 // textContent: aman dari XSS email
+    span.style.cssText = 'color:' + (color || '#e7e5e4') + ';word-break:break-all';
+    line.appendChild(span);
+    if (actionBtn) line.appendChild(actionBtn);
+    return line;
+  }
+
+  async function refreshAdminLists() {
+    var pend = document.getElementById('rc-admin-pending');
+    var mem = document.getElementById('rc-admin-members');
+    if (!pend || !mem) return;
+    pend.textContent = 'Memuat…'; mem.textContent = 'Memuat…';
+    var p = await sb.rpc('admin_list_pending');
+    if (p.error) { pend.textContent = 'Gagal: ' + p.error.message; }
+    else if (!p.data || !p.data.length) { pend.innerHTML = ''; pend.appendChild(el('<span style="color:#78716c">Tidak ada yang menunggu.</span>')); }
+    else {
+      pend.innerHTML = '';
+      p.data.forEach(function (r) {
+        var btn = document.createElement('button');
+        btn.textContent = '✅ Setujui';
+        btn.style.cssText = 'flex:none;background:#166534;color:#fff;border:none;border-radius:7px;padding:5px 10px;font:600 12px system-ui;cursor:pointer';
+        btn.addEventListener('click', async function () {
+          btn.disabled = true; btn.textContent = '…';
+          var res = await sb.rpc('admin_approve', { p_email: r.email });
+          if (res.error) { alert('Gagal: ' + res.error.message); btn.disabled = false; btn.textContent = '✅ Setujui'; }
+          else { await refreshAdminLists(); }
+        });
+        pend.appendChild(rowItem(r.email, btn));
+      });
+    }
+    var m = await sb.rpc('admin_list_members');
+    if (m.error) { mem.textContent = 'Gagal: ' + m.error.message; }
+    else {
+      mem.innerHTML = '';
+      (m.data || []).forEach(function (r) {
+        var btn = null;
+        if (r.role !== 'admin') {
+          btn = document.createElement('button');
+          btn.textContent = '❌ Cabut';
+          btn.style.cssText = 'flex:none;background:transparent;color:#f87171;border:1px solid #3d342a;border-radius:7px;padding:5px 10px;font:600 12px system-ui;cursor:pointer';
+          btn.addEventListener('click', async function () {
+            if (!confirm('Cabut akses ' + r.email + '?')) return;
+            btn.disabled = true;
+            var res = await sb.rpc('admin_revoke', { p_email: r.email });
+            if (res.error) { alert('Gagal: ' + res.error.message); btn.disabled = false; }
+            else { await refreshAdminLists(); }
+          });
+        }
+        mem.appendChild(rowItem(r.email + (r.role === 'admin' ? '  (admin)' : ''), btn, r.role === 'admin' ? '#fbbf24' : '#e7e5e4'));
+      });
+    }
+  }
+
+  function openAdminPanel() {
+    var panel = document.getElementById('rc-admin-panel');
+    if (!panel) {
+      panel = el('<div id="rc-admin-panel" style="position:fixed;inset:0;z-index:100000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.6);font-family:system-ui,Segoe UI,Arial">'
+        + '<div style="width:460px;max-width:94vw;max-height:86vh;overflow:auto;background:#14110e;border:1px solid #3d342a;border-radius:14px;padding:20px;color:#e7e5e4">'
+        + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px"><div style="font-size:16px;font-weight:800;color:#fbbf24">👤 Persetujuan Anggota</div><button id="rc-admin-close" style="background:transparent;border:none;color:#a8a29e;font-size:22px;line-height:1;cursor:pointer">×</button></div>'
+        + '<div style="font-size:11px;color:#a8a29e;margin-bottom:14px">Setujui pendaftar baru atau cabut akses. Semua langsung tersimpan ke cloud.</div>'
+        + '<div style="font-size:12px;font-weight:700;color:#84cc16;margin:8px 0 2px">⏳ Menunggu persetujuan</div>'
+        + '<div id="rc-admin-pending">Memuat…</div>'
+        + '<div style="font-size:12px;font-weight:700;color:#fbbf24;margin:18px 0 2px">✅ Anggota disetujui</div>'
+        + '<div id="rc-admin-members">Memuat…</div>'
+        + '<button id="rc-admin-refresh" style="margin-top:16px;width:100%;padding:9px;border:1px solid #3d342a;border-radius:8px;background:transparent;color:#a8a29e;font:600 12px system-ui;cursor:pointer">🔄 Muat ulang</button>'
+        + '</div></div>');
+      document.body.appendChild(panel);
+      panel.addEventListener('click', function (e) { if (e.target === panel) panel.style.display = 'none'; });
+      panel.querySelector('#rc-admin-close').addEventListener('click', function () { panel.style.display = 'none'; });
+      panel.querySelector('#rc-admin-refresh').addEventListener('click', refreshAdminLists);
+    }
+    panel.style.display = 'flex';
+    refreshAdminLists();
+  }
+
   // ---------- boot app yang tertunda ----------
   function bootApp() {
     installInterceptor();
@@ -1878,6 +1964,7 @@
     document.body.appendChild(s); // jalan di global scope; __rcReady jalankan init langsung
     setBadge('saved');
     addLogout();
+    addAdminButton();
     window.addEventListener('offline', function () { setBadge('offline'); });
     window.addEventListener('online', function () { if (state.dirty) markDirty(); });
   }
@@ -1886,6 +1973,7 @@
     setMsg('Memuat data…', '#a8a29e');
     var u = await sb.auth.getUser();
     state.email = (u.data && u.data.user && u.data.user.email) || '';
+    try { var ad = await sb.rpc('is_admin'); state.isAdmin = !!(ad && ad.data); } catch (e) { state.isAdmin = false; }
     var row;
     try { row = await pull(); }
     catch (e) { setMsg('Gagal memuat: ' + (e.message || e)); return; }
