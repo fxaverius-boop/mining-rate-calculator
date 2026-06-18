@@ -1,17 +1,18 @@
-# 🔒 Mining Rate Calculator (Encrypted)
+# ⛏️ Mining Rate Calculator (Team Cloud)
 
-Dashboard kalkulator rate & TCO penambangan — **terenkripsi (AES-256)**.
+Dashboard kalkulator rate & TCO penambangan — data **tim bersama** tersinkron via Supabase.
 
 ## Cara membuka
 1. Buka link GitHub Pages repo ini.
-2. Masukkan **password** (diberikan oleh pemilik).
-3. Konten ter-dekripsi di browser Anda. Tidak ada data yang dikirim ke server.
+2. **Login** dengan akun tim Anda (email + password). Belum punya akun? Klik **Daftar akun baru**, konfirmasi email, lalu login.
+3. Hanya email yang ada di **allowlist** (diatur admin) yang dapat melihat & mengedit data tim.
 
-## Keamanan
-- Isi file `index.html` dienkripsi **AES-256-GCM** dengan key turunan **PBKDF2-SHA256 (250.000 iterasi)**.
-- Tanpa password yang benar, konten tidak dapat dibaca.
-- Gunakan password yang kuat & jangan bagikan ke pihak yang tidak berhak.
+## Cara kerja
+- Aplikasi statis (GitHub Pages) + **Supabase** (Auth + Postgres).
+- Data (project, katalog, history) tersimpan di cloud dan dibagikan ke seluruh anggota tim.
+- Perubahan tersimpan otomatis. Tombol **🔄** (badge kanan-bawah) menarik perubahan terbaru rekan tim.
+- Akses dijaga login + allowlist email + Row Level Security. anon key bersifat publik (aman by design).
 
-## Catatan
-- Aplikasi berjalan sepenuhnya di browser (client-side). Perubahan data tersimpan di `localStorage` perangkat masing-masing.
-- Untuk update konten: pemilik meng-enkripsi ulang `index.html` lalu push kembali.
+## Untuk admin
+- Tambah anggota: masukkan email mereka ke tabel `allowed_members` (Supabase Dashboard).
+- Build & deploy ulang: `node build_cloud.js` lalu commit `index.html` (hanya file ini + README yang masuk repo publik).
