@@ -1978,22 +1978,32 @@
     window.addEventListener('online', function () { if (state.dirty) markDirty(); });
   }
 
+  /* Hindari menggantung selamanya: tolak jika lewat batas waktu. */
+  function withTimeout(p, ms, label) {
+    return Promise.race([p, new Promise(function (_, rej) { setTimeout(function () { rej(new Error((label || 'Operasi') + ' timeout (' + Math.round(ms / 1000) + 's)')); }, ms); })]);
+  }
   async function afterLogin() {
     setMsg('Memuat data…', '#a8a29e');
-    var u = await sb.auth.getUser();
-    state.email = (u.data && u.data.user && u.data.user.email) || '';
-    try { var ad = await sb.rpc('is_admin'); state.isAdmin = !!(ad && ad.data); } catch (e) { state.isAdmin = false; }
-    var row;
-    try { row = await pull(); }
-    catch (e) { setMsg('Gagal memuat: ' + (e.message || e)); return; }
-    if (!row) {
-      setMsg('Akun ' + state.email + ' belum diizinkan. Hubungi admin untuk ditambahkan.');
-      await sb.auth.signOut();
-      return;
+    try {
+      var u = await withTimeout(sb.auth.getUser(), 15000, 'Cek sesi');
+      state.email = (u.data && u.data.user && u.data.user.email) || '';
+      var row;
+      try { row = await withTimeout(pull(), 20000, 'Memuat data'); }
+      catch (e) { setMsg('Gagal memuat data: ' + (e.message || e) + ' — muat ulang halaman (Ctrl+Shift+R).'); return; }
+      if (!row) {
+        setMsg('Akun ' + state.email + ' belum diizinkan. Hubungi admin untuk ditambahkan.');
+        try { await sb.auth.signOut(); } catch (e) {}
+        return;
+      }
+      try { hydrate(row); } catch (e) { console.error('hydrate gagal', e); }   /* jangan biarkan boot mentok */
+      hideLogin();
+      bootApp();
+      /* Status admin ditentukan SETELAH boot (tidak menghadang) — tambah tombol bila admin. */
+      sb.rpc('is_admin').then(function (ad) { state.isAdmin = !!(ad && !ad.error && ad.data); if (state.isAdmin) addAdminButton(); }).catch(function () { state.isAdmin = false; });
+    } catch (e) {
+      setMsg('Gagal memuat: ' + (e.message || e) + ' — muat ulang halaman (Ctrl+Shift+R).');
+      console.error('afterLogin', e);
     }
-    hydrate(row);
-    hideLogin();
-    bootApp();
   }
 
   async function init() {
