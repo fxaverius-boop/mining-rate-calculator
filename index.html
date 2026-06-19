@@ -6845,6 +6845,11 @@ function excelExportDialog(){
 function exportRateExcel(mode, opts){
   opts = opts || {};
   const selStreams = (Array.isArray(opts.streams) && opts.streams.length) ? opts.streams : null;
+  /* Filter stream: baris bertanda stream produksi yang TIDAK dicentang → dibuang.
+     'shared'/tak-bertanda selalu ikut (pool/overhead, dialokasi ke stream terpilih). */
+  const PROD_STREAMS = ['ob','coal_get','coal_haul','rental','hrm'];
+  const streamOK = function(s){ const k=s||'shared'; if(PROD_STREAMS.indexOf(k)>=0) return !selStreams || selStreams.indexOf(k)>=0; return true; };
+  const selStreamRows = function(arr){ return [['ob','OB','⛏️ OB'],['coal_get','COAL_GET','🪨 Coal Getting'],['coal_haul','COAL_HAUL','🚛 Coal Hauling'],['rental','RENTAL','💰 Rental'],['hrm','HRM','🛣️ HRM'],['shared','SHARED','🔀 Shared']].filter(s=>streamOK(s[0])); };
   if(typeof XLSX==='undefined'){ alert('Library Excel (xlsx-js-style) belum termuat. Periksa koneksi internet.'); return; }
   const exportAll = (mode === 'all');
   let sc, pty;
@@ -7046,6 +7051,7 @@ function exportRateExcel(mode, opts){
     const streamLabel={ob:'⛏️ OB',coal_get:'🪨 Coal Getting',coal_haul:'🚛 Coal Hauling',rental:'💰 Rental',hrm:'🛣️ HRM',shared:'🔀 Shared'};
     let grand=0; const subRefs=[];
     Object.keys(streamLabel).forEach(sk=>{
+      if(!streamOK(sk)) return;
       const rows=equip.filter(e=>(e.stream||DEFAULT_STREAM_FOR(e.cat))===sk && (+e.qty||0)>0);
       if(!rows.length) return;
       let sub=0;
@@ -7087,7 +7093,7 @@ function exportRateExcel(mode, opts){
     let tHC=0,tPrj=0;
     const mpByStream={ob:0,coal_get:0,coal_haul:0,rental:0,hrm:0,shared:0};
     const r0 = g.length + 1;
-    manpower.filter(m=>(+m.qty||0)>0).forEach(m=>{
+    manpower.filter(m=>(+m.qty||0)>0 && streamOK(m.stream)).forEach(m=>{
       const er = g.length + 1;
       const inc=(typeof mpInc==='function')?mpInc(m):true;
       const mcu=(typeof isMCU==='function')&&isMCU(m.pos);
@@ -7112,7 +7118,7 @@ function exportRateExcel(mode, opts){
     /* Subtotal per Stream (rumus SUMIF — hidup: ubah baris → subtotal berubah). */
     g.push([]);
     g.push([Object.assign({},T('📊 Subtotal Man Power per Stream — Biaya/project (Rp)',sSect)),null,null,null,null,null,null,null,null,null]);
-    [['ob','OB','⛏️ OB'],['coal_get','COAL_GET','🪨 Coal Getting'],['coal_haul','COAL_HAUL','🚛 Coal Hauling'],['rental','RENTAL','💰 Rental'],['hrm','HRM','🛣️ HRM'],['shared','SHARED','🔀 Shared']].forEach(function(s){
+    selStreamRows().forEach(function(s){
       g.push([T(s[2],sLabel),T('',sCell),T('',sCell),T('',sCell),T('',sCell),T('',sCell),T('',sCell),
         Mf(`SUMIF(${colL(8)}$${r0}:${colL(8)}$${r1},"${s[1]}",${colL(7)}$${r0}:${colL(7)}$${r1})`, mpByStream[s[0]]||0, sMoneyB),T('',sCtr),T('',sCtr)]);
     });
@@ -7121,9 +7127,9 @@ function exportRateExcel(mode, opts){
     XLSX.utils.book_append_sheet(wb, ws, 'Man Power');
   }
 
-  /* ============ SHEET 5: MODAL AWAL / CAPITAL COST ============ */
+  /* ============ SHEET 5: MODAL AWAL / CAPITAL COST — TIDAK diexport (permintaan user) ============ */
   try {
-    if(typeof computeModalAwal==='function'){
+    if(false && typeof computeModalAwal==='function'){
       const m = computeModalAwal();
       const g=[];
       g.push([Object.assign({},T('🏦 MODAL AWAL / CAPITAL COST — Kebutuhan Modal di Awal Project'),{s:sTitle})]);
@@ -7257,30 +7263,36 @@ function exportRateExcel(mode, opts){
       g.push([Object.assign({},T('🔧 MAINTENANCE COST — per Unit & Fleet (Rupiah)'),{s:sTitle})]);
       g.push([Object.assign({},T(`Kurs maint Rp ${mUsd.toLocaleString('id-ID')}/USD · Faktor pengali ${mFactor}% · Sumber: handbook + brand factor · /bln = /thn ÷ 12 · /project = /thn × ${years}`),{s:sSub})]);
       g.push([]);
-      const hdr=['Category','Merk','Model','Qty','Sched (Rp/unit/thn)','Unsched (Rp/unit/thn)','Battery (Rp/unit/thn)','Total/unit/thn','Total/unit/bln','Fleet/thn (Rp)','Fleet/project (Rp)','PA %','MTBF (j)'];
+      /* Layout sesuai tab Maintenance Cost: Unit · Qty · Per Unit (/Bln /Thn /Proj) · Fleet ×Qty (/Bln /Thn /Proj). */
+      const hdr=['Unit','Qty','Per Unit /Bulan (Rp)','Per Unit /Tahun (Rp)','Per Unit /Project (Rp)','Fleet /Bulan (Rp)','Fleet /Tahun (Rp)','Fleet /Project (Rp)'];
       g.push(hdr.map(h=>T(h,sHdr)));
       const r0=g.length+1;
+      let gtFleetYr=0;
       mc.rows.forEach(r=>{
         if(!(r.e.qty>0)) return;
+        const est = r.e.stream || (typeof DEFAULT_STREAM_FOR==='function'?DEFAULT_STREAM_FOR(r.e.cat):'shared');
+        if(!streamOK(est)) return;                                  /* filter sesuai stream dipilih */
         const er=g.length+1;
-        const sched=r.schedDirect_perUnit*mUsd, unsched=r.unschedDirect_perUnit*mUsd, batt=(r.battery_perUnit||0)*mUsd;
-        g.push([T(r.e.cat,sCell),T(r.e.merk||'',sCell),T(r.e.model||'',sCell),N(r.e.qty,sCtr),
-          M(sched),M(unsched),M(batt),
-          Mf(`${colL(4)}${er}+${colL(5)}${er}+${colL(6)}${er}`, sched+unsched+batt, sMoney),     /* total/unit/thn */
-          Mf(`${colL(7)}${er}/12`, (sched+unsched+batt)/12, sMoney),                              /* /unit/bln */
-          Mf(`${colL(7)}${er}*${colL(3)}${er}`, (sched+unsched+batt)*r.e.qty, sMoney),            /* fleet/thn */
-          Mf(`${colL(9)}${er}*${RY}`, (sched+unsched+batt)*r.e.qty*years, sMoneyB),               /* fleet/project */
-          {v:+(r.pa*100).toFixed(1),t:'n',z:'0.0',s:sCtr}, N(Math.round(r.mtbf||0),sCtr)]);
+        const perYr=(r.schedDirect_perUnit + r.unschedDirect_perUnit + (r.battery_perUnit||0))*mUsd;  /* per unit /tahun */
+        gtFleetYr += perYr*(+r.e.qty||0);
+        const unitName=`${r.e.cat}: ${r.e.merk||''} ${r.e.model||''}`.replace(/\s+/g,' ').trim();
+        g.push([T(unitName,sCell), N(r.e.qty,sCtr),
+          Mf(`${colL(3)}${er}/12`, perYr/12, sMoney),                        /* PerUnit /Bln = /Thn ÷ 12 */
+          M(perYr, sMoney),                                                  /* PerUnit /Thn */
+          Mf(`${colL(3)}${er}*${RY}`, perYr*years, sMoney),                  /* PerUnit /Proj = /Thn × Years */
+          Mf(`${colL(2)}${er}*${colL(1)}${er}`, (perYr/12)*r.e.qty, sMoney), /* Fleet /Bln = PerUnit/Bln × Qty */
+          Mf(`${colL(3)}${er}*${colL(1)}${er}`, perYr*r.e.qty, sMoney),      /* Fleet /Thn */
+          Mf(`${colL(4)}${er}*${colL(1)}${er}`, perYr*years*r.e.qty, sMoneyB)]); /* Fleet /Proj */
       });
       const r1=g.length;
       if(r1>=r0){
-        g.push([T('TOTAL FLEET',sLabel),T('',sCell),T('',sCell),T('',sCell),T('',sCell),T('',sCell),T('',sCell),T('',sCell),T('',sCell),
-          Mf(`SUM(${colL(9)}${r0}:${colL(9)}${r1})`, mc.totals.total*mUsd, sMoneyB),
-          Mf(`SUM(${colL(10)}${r0}:${colL(10)}${r1})`, mc.totals.total*mUsd*years, sMoneyB),
-          T('',sCtr),T('',sCtr)]);
+        g.push([T('Grand Total Maintenance',sLabel),T('',sCtr),T('',sCell),T('',sCell),T('',sCell),
+          Mf(`SUM(${colL(5)}${r0}:${colL(5)}${r1})`, gtFleetYr/12, sMoneyB),
+          Mf(`SUM(${colL(6)}${r0}:${colL(6)}${r1})`, gtFleetYr, sMoneyB),
+          Mf(`SUM(${colL(7)}${r0}:${colL(7)}${r1})`, gtFleetYr*years, sMoneyB)]);
       }
-      const ws=gridToSheet(g,[{wch:16},{wch:16},{wch:20},{wch:6},{wch:18},{wch:19},{wch:17},{wch:17},{wch:16},{wch:18},{wch:20},{wch:7},{wch:10}],
-        [mergeRow(0,0,12),mergeRow(1,0,12)]);
+      const ws=gridToSheet(g,[{wch:34},{wch:6},{wch:18},{wch:18},{wch:20},{wch:18},{wch:18},{wch:20}],
+        [mergeRow(0,0,7),mergeRow(1,0,7)]);
       XLSX.utils.book_append_sheet(wb, ws, 'Maintenance Cost');
     }
   } catch(e){ console.warn('Maintenance sheet gagal:', e); }
@@ -7297,6 +7309,7 @@ function exportRateExcel(mode, opts){
     const r0=g.length+1;
     (typeof support!=='undefined'?support:[]).forEach(s=>{
       if(!(s.qty>0 && s.cost>0)) return;
+      if(!streamOK(s.stream)) return;
       const inc=(typeof supInc==='function')?supInc(s):true;
       const cap=(typeof isCapexSupport==='function')&&isCapexSupport(s.name);
       const er=g.length+1;
@@ -7326,7 +7339,7 @@ function exportRateExcel(mode, opts){
     if(r1>=r0){
       g.push([]);
       g.push([Object.assign({},T('📊 Subtotal Support per Stream — /Project (Rp)',sSect)),null,null,null,null,null,null,null,null]);
-      [['ob','OB','⛏️ OB'],['coal_get','COAL_GET','🪨 Coal Getting'],['coal_haul','COAL_HAUL','🚛 Coal Hauling'],['rental','RENTAL','💰 Rental'],['hrm','HRM','🛣️ HRM'],['shared','SHARED','🔀 Shared']].forEach(function(s){
+      selStreamRows().forEach(function(s){
         g.push([T(s[2],sLabel),T('',sCell),T('',sCell),T('',sCell),T('',sCell),T('',sCell),
           Mf(`SUMIF(${colL(7)}$${r0}:${colL(7)}$${r1},"${s[1]}",${colL(6)}$${r0}:${colL(6)}$${r1})`, supByStream[s[0]]||0, sMoneyB),T('',sCtr),T('',sCtr)]);
       });
