@@ -284,16 +284,24 @@
       <button onclick="saveNow()" class="btn btn-add" title="Save manual — commit state ke localStorage + snapshot ke history" style="padding:6px 12px">💾 Save</button>
       <button onclick="showHistory()" class="btn btn-sec" title="Lihat history save & restore ke versi sebelumnya" style="padding:6px 12px">⏪ History</button>
       <button id="theme_toggle" class="theme-toggle" onclick="toggleTheme()" title="Ganti tema Dark / Light"><span id="theme_icon">🌙</span><span id="theme_label">Dark</span></button>
-      <button onclick="clearAutosave()" class="btn btn-sec" title="Hapus data autosave & reset ke default">🗑 Clear</button>
-      <button onclick="resetDefaults()" class="btn btn-sec">↺ Reset</button>
-      <button onclick="exportJSON()" class="btn btn-add" title="Export JSON 1 project (pilih lewat prompt)">💾 Export</button>
-      <button onclick="exportJSON('all')" class="btn btn-add" title="Export JSON SEMUA project sekaligus (bundle) — bisa di-Import balik untuk restore semua">💾 Export Semua</button>
       <label class="btn btn-add cursor-pointer" title="Import project dari file JSON (single atau bundle ALL). MERGE — tidak menimpa project yang sudah ada.">⬆ Import<input type="file" accept=".json" class="hidden" onchange="importProjectsJSON(this)"></label>
-      <button onclick="exportRateExcel()" class="btn btn-add" title="Export Excel rapi (project aktif): Calculator + Rate + breakdown per stream + Modal Awal + Cost Breakdown" style="background:#166534;border-color:#22c55e">⬇ Excel</button>
-      <button onclick="exportRateExcel('all')" class="btn btn-add" title="Export Excel SEMUA project: sheet Perbandingan lintas project + detail project aktif" style="background:#14532d;border-color:#22c55e">⬇ Excel · Semua</button>
-      <button onclick="openUnitPriceDB()" class="btn btn-sec" title="Browse Unit Price Database — quoted prices dari supplier" style="padding:6px 12px">💰 Price DB</button>
-      <button onclick="openUnitSpecDB()" class="btn btn-sec" title="Browse Unit Spec Database — spec dari manufacturer brochure" style="padding:6px 12px">📋 Spec DB</button>
-      <button id="localfs_btn" onclick="LocalFS.connect()" class="btn btn-add" title="Sambung folder lokal supaya data tidak hilang waktu clear cache" style="padding:6px 12px">🔗 Connect Folder</button>
+      <button onclick="excelExportDialog()" class="btn btn-add" title="Export Excel (pilih stream): Calculator + Rate + Calculator Produksi" style="background:#166534;border-color:#22c55e">⬇ Excel</button>
+      <style>.more-item{display:block;width:100%;text-align:left;background:transparent;border:none;color:#e7e5e4;padding:8px 10px;border-radius:6px;font-size:12px;cursor:pointer;white-space:nowrap}.more-item:hover{background:#3d342a}</style>
+      <div style="position:relative;display:inline-block">
+        <button id="more_btn" onclick="toggleMoreMenu(event)" class="btn btn-sec" title="Menu lainnya" style="padding:6px 12px">⋮ More ▾</button>
+        <div id="more_menu" onclick="this.style.display='none'" style="display:none;position:absolute;right:0;top:calc(100% + 4px);z-index:300;background:#1c1714;border:1px solid #3d342a;border-radius:10px;padding:6px;min-width:200px;box-shadow:0 10px 30px rgba(0,0,0,.55)">
+          <button onclick="exportJSON()" class="more-item">💾 Export JSON (1 project)</button>
+          <button onclick="exportJSON('all')" class="more-item">💾 Export Semua (bundle)</button>
+          <button onclick="exportRateExcel('all')" class="more-item">⬇ Excel · Semua project</button>
+          <div style="height:1px;background:#3d342a;margin:4px 0"></div>
+          <button onclick="openUnitPriceDB()" class="more-item">💰 Price DB</button>
+          <button onclick="openUnitSpecDB()" class="more-item">📋 Spec DB</button>
+          <button id="localfs_btn" onclick="LocalFS.connect()" class="more-item">🔗 Connect Folder</button>
+          <div style="height:1px;background:#3d342a;margin:4px 0"></div>
+          <button onclick="clearAutosave()" class="more-item">🗑 Clear autosave</button>
+          <button onclick="resetDefaults()" class="more-item">↺ Reset default</button>
+        </div>
+      </div>
     </div>
   </div>
   <div class="px-2 mb-2">
@@ -1007,8 +1015,9 @@
       </div>
     </div>
 
-    <!-- KPI ROW — ringkas dari data calc() + rate recommendation -->
-    <div class="grid grid-cols-2 md:grid-cols-6 gap-4 mb-6">
+    <!-- KPI ROW — disembunyikan: angka sudah diwakili tabel per-stream + ringkasan di bawah.
+         Tetap di DOM (display:none) supaya tcoRender aman mengisi elemen. -->
+    <div class="grid grid-cols-2 md:grid-cols-6 gap-4 mb-6" style="display:none">
       <div class="kpi card p-4" id="tco_kpi_pty_card"><div class="kpi-label">⚙️ Productivity Fleet</div><div id="tco_kpi_pty" class="kpi-val">—</div><div class="kpi-sub" id="tco_kpi_pty_unit">bcm/jam</div><div class="bar"></div></div>
       <div class="kpi card p-4" id="tco_kpi_prod_card"><div class="kpi-label">📦 Produksi / Tahun</div><div id="tco_kpi_prod" class="kpi-val">—</div><div class="kpi-sub" id="tco_kpi_prod_unit">bcm / year</div><div class="bar"></div></div>
       <div class="kpi card p-4" id="tco_kpi_prod_prj_card"><div class="kpi-label">🏭 Produksi / Project</div><div id="tco_kpi_prod_prj" class="kpi-val">—</div><div class="kpi-sub" id="tco_kpi_prod_prj_unit">bcm · total</div><div class="bar"></div></div>
@@ -6787,7 +6796,45 @@ function importProjectsJSON(input){
    EXPORT EXCEL — Calculator + perhitungan Rate + breakdown per stream
    (pembagian seperti TCO). Pakai xlsx-js-style untuk format rapi.
    ================================================================= */
-function exportRateExcel(mode){
+/* Toolbar overflow menu */
+function toggleMoreMenu(e){ if(e) e.stopPropagation(); const m=document.getElementById('more_menu'); if(m) m.style.display=(m.style.display==='block')?'none':'block'; }
+document.addEventListener('click', function(e){ const m=document.getElementById('more_menu'), b=document.getElementById('more_btn'); if(m && m.style.display==='block' && b && !b.contains(e.target)) m.style.display='none'; });
+
+/* Dialog pilih stream + opsi sebelum export Excel (project aktif). */
+function excelExportDialog(){
+  let dlg=document.getElementById('excel_dialog');
+  if(!dlg){
+    const streams=[['ob','⛏️ OB — Overburden'],['coal_get','🪨 Coal Getting'],['coal_haul','🚛 Coal Hauling'],['rental','💰 Rental'],['hrm','🛣️ HRM']];
+    dlg=document.createElement('div'); dlg.id='excel_dialog';
+    dlg.style.cssText='position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.6);font-family:system-ui,Segoe UI,sans-serif';
+    dlg.innerHTML='<div style="width:340px;max-width:92vw;background:#1c1714;border:1px solid #3d342a;border-radius:14px;padding:20px;color:#e7e5e4">'
+      +'<div style="font-size:15px;font-weight:800;color:#22c55e;margin-bottom:4px">⬇ Export Excel</div>'
+      +'<div style="font-size:11px;color:#a8a29e;margin-bottom:12px">Pilih stream & data yang diexport (project aktif).</div>'
+      +'<div style="font-size:11px;font-weight:700;color:#d6d3d1;margin-bottom:4px">STREAM</div>'
+      +streams.map(s=>'<label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px;cursor:pointer"><input type="checkbox" class="xls-stream" value="'+s[0]+'" checked> '+s[1]+'</label>').join('')
+      +'<div style="height:1px;background:#3d342a;margin:10px 0"></div>'
+      +'<label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer"><input type="checkbox" id="xls_pty" checked> Sertakan Calculator Produksi (PTY)</label>'
+      +'<div style="display:flex;gap:8px;margin-top:16px">'
+      +'<button id="xls_cancel" style="flex:1;padding:10px;border:1px solid #3d342a;border-radius:8px;background:transparent;color:#a8a29e;cursor:pointer">Batal</button>'
+      +'<button id="xls_go" style="flex:2;padding:10px;border:none;border-radius:8px;background:#166534;color:#fff;font-weight:700;cursor:pointer">⬇ Download</button>'
+      +'</div></div>';
+    document.body.appendChild(dlg);
+    dlg.addEventListener('click',e=>{ if(e.target===dlg) dlg.style.display='none'; });
+    dlg.querySelector('#xls_cancel').onclick=()=>{ dlg.style.display='none'; };
+    dlg.querySelector('#xls_go').onclick=()=>{
+      const sel=[...dlg.querySelectorAll('.xls-stream:checked')].map(c=>c.value);
+      if(!sel.length){ alert('Pilih minimal 1 stream.'); return; }
+      const pty=dlg.querySelector('#xls_pty').checked;
+      dlg.style.display='none';
+      exportRateExcel(null,{streams:sel,pty:pty});
+    };
+  }
+  dlg.style.display='flex';
+}
+
+function exportRateExcel(mode, opts){
+  opts = opts || {};
+  const selStreams = (Array.isArray(opts.streams) && opts.streams.length) ? opts.streams : null;
   if(typeof XLSX==='undefined'){ alert('Library Excel (xlsx-js-style) belum termuat. Periksa koneksi internet.'); return; }
   const exportAll = (mode === 'all');
   let sc, pty;
@@ -6856,7 +6903,7 @@ function exportRateExcel(mode){
     ['coal_haul','🚛 Coal Hauling','$/Ton/Km','Ton·Km'],
     ['rental','💰 Rental','$/unit/jam','unit·jam'],
     ['hrm','🛣️ HRM','$/Km','Km'],
-  ].filter(([k])=> (sc.totalByStreamPrj[k]>0 || sc.prodPrj[k]>0));
+  ].filter(([k])=> (sc.totalByStreamPrj[k]>0 || sc.prodPrj[k]>0) && (!selStreams || selStreams.includes(k)));
 
   const wb = XLSX.utils.book_new();
 
@@ -7259,6 +7306,49 @@ function exportRateExcel(mode){
       [mergeRow(0,0,8),mergeRow(1,0,8)]);
     XLSX.utils.book_append_sheet(wb, ws, 'Support Facilities');
   } catch(e){ console.warn('Support sheet gagal:', e); }
+
+  /* ============ SHEET: CALCULATOR PRODUKSI (PTY per kategori terpilih) ============ */
+  if(opts.pty && typeof prodCalcCompute==='function' && typeof pcReadInputs==='function' && typeof pcWriteInputs==='function'){
+    try {
+      const PCAT = [['ob','⛏️ OB — Overburden','Bcm'],['coal_get','🪨 Coal Getting','Ton']]
+        .filter(([k])=> !selStreams || selStreams.includes(k));
+      if(PCAT.length){
+        const PC_LBL = {pc_bucket:'Bucket Capacity',pc_eff_bucket:'Eff. Bucket (%)',pc_ct_loader:'Cycle time loader (detik)',pc_prep:'Prepare front (detik)',pc_vessel:'Vessel Capacity',pc_eff_vessel:'Eff. Vessel (%)',pc_dump_time:'Dumping time (detik)',pc_dump_pos:'Dumping position (detik)',pc_load_pos:'Loading position (detik)',pc_speed_empty:'Speed empty (km/jam)',pc_speed_loaded:'Speed loaded (km/jam)',pc_distance:'Distance (km)',pc_pa:'PA (%)',pc_ua:'UA (%)',pc_mohh:'MOHH (jam/bln)',pc_fleet:'Jumlah Fleet',pc_years:'Tahun Project'};
+        const IDS = (typeof PC_INPUT_IDS!=='undefined') ? PC_INPUT_IDS : Object.keys(PC_LBL);
+        const nv = v => ({v:+(+v||0).toFixed(2),t:'n',z:'#,##0.00',s:sCtr});
+        const savedInputs = pcReadInputs();
+        const g=[];
+        g.push([Object.assign({},T('🏭 CALCULATOR PRODUKSI — Productivity & Produksi'),{s:sTitle}),null,null]);
+        g.push([Object.assign({},T('Per kategori (input tersimpan per stream) · digenerate '+stamp),{s:sSub}),null,null]);
+        PCAT.forEach(([k,lbl,uVol])=>{
+          const store = (typeof pcStore!=='undefined' && pcStore[k]) ? pcStore[k] : null;
+          if(store) pcWriteInputs(store);
+          let r=null; try{ r=prodCalcCompute(); }catch(e){}
+          const src = store || savedInputs;
+          const uRate = uVol+'/jam';
+          g.push([]);
+          g.push([Object.assign({},T(lbl,sSect)),Object.assign({},T('',sSect)),Object.assign({},T('',sSect))]);
+          g.push([T('INPUT',sLabel),T('',sCtr),T('',sExcl)]);
+          IDS.forEach(id=>{ if(!PC_LBL[id]) return; g.push([T(PC_LBL[id],sCell), nv(src&&src[id]), T('',sExcl)]); });
+          if(r){
+            g.push([T('HASIL',sLabel),T('',sCtr),T('',sExcl)]);
+            const o=(label,val,unit)=> g.push([T(label,sCell), nv(val), T(unit||'',sExcl)]);
+            o('Productivity by CT Loader', r.prodLoader, uRate);
+            o('Ritase hauler', r.ritase, 'Rit');
+            o('Productivity Hauler', r.prodHauler, uRate);
+            o('Hauler dibutuhkan', r.haulerNeeded, 'unit');
+            o('Productivity Fleet', r.prodFleet, uRate);
+            o('Produksi / Bulan', r.prodMonth, uVol);
+            o('Produksi / Tahun (1 fleet)', r.prodYear, uVol);
+            o('Produksi / Project', r.prodProject, uVol);
+          }
+        });
+        pcWriteInputs(savedInputs);   /* restore tampilan UI ke kondisi semula */
+        const ws=gridToSheet(g,[{wch:30},{wch:16},{wch:12}],[mergeRow(0,0,2),mergeRow(1,0,2)]);
+        XLSX.utils.book_append_sheet(wb, ws, 'Calculator Produksi');
+      }
+    } catch(e){ console.warn('Calculator Produksi sheet gagal:', e); }
+  }
 
   const safe = String(projName).replace(/[\\/:*?"<>|]/g,'_');
   XLSX.writeFile(wb, exportAll ? `Rate-TCO_ALL-PROJECTS_${stamp}.xlsx` : `Rate-TCO_${safe}_${stamp}.xlsx`);
