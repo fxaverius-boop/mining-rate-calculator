@@ -7085,6 +7085,7 @@ function exportRateExcel(mode, opts){
     const deptName = p => { const d=(typeof deptOf==='function')?deptOf(p):null; return d===null?'Project Lead':(d||'Lainnya'); };
     const lvlName  = p => { const l=(typeof levelOf==='function')?levelOf(p):null; return l||'—'; };
     let tHC=0,tPrj=0;
+    const mpByStream={ob:0,coal_get:0,coal_haul:0,rental:0,hrm:0,shared:0};
     const r0 = g.length + 1;
     manpower.filter(m=>(+m.qty||0)>0).forEach(m=>{
       const er = g.length + 1;
@@ -7092,7 +7093,7 @@ function exportRateExcel(mode, opts){
       const mcu=(typeof isMCU==='function')&&isMCU(m.pos);
       const yr=(typeof mpAnnual==='function')?mpAnnual(m):(+m.qty||0)*(+m.sal||0)*12;
       const mo=yr/12, prj=inc?yr*years:0;
-      if(inc){tHC+=(+m.qty||0); tPrj+=prj;}
+      if(inc){tHC+=(+m.qty||0); tPrj+=prj; var _sk=(m.stream||'shared'); if(mpByStream[_sk]==null)_sk='shared'; mpByStream[_sk]+=prj;}
       const base = inc?sCell:sExcl, money = inc?sMoney:sExcl;
       /* MCU: /thn = Qty×Gaji (×1/tahun), /bln = "—" (tanpa komponen bulanan). Normal: /bln = Qty×Gaji, /thn = ×12. */
       const moCell = mcu ? T('—',sCtr) : Mf(`${colL(3)}${er}*${colL(4)}${er}`, mo, money);
@@ -7108,6 +7109,13 @@ function exportRateExcel(mode, opts){
       Mf(`SUM(${colL(3)}${r0}:${colL(3)}${r1})`, tHC, sCtr),
       T('',sCell),T('',sCell),T('',sCell),
       Mf(`SUM(${colL(7)}${r0}:${colL(7)}${r1})`, tPrj, sMoneyB),T('',sCell),T('',sCell)]);
+    /* Subtotal per Stream (rumus SUMIF — hidup: ubah baris → subtotal berubah). */
+    g.push([]);
+    g.push([Object.assign({},T('📊 Subtotal Man Power per Stream — Biaya/project (Rp)',sSect)),null,null,null,null,null,null,null,null,null]);
+    [['ob','OB','⛏️ OB'],['coal_get','COAL_GET','🪨 Coal Getting'],['coal_haul','COAL_HAUL','🚛 Coal Hauling'],['rental','RENTAL','💰 Rental'],['hrm','HRM','🛣️ HRM'],['shared','SHARED','🔀 Shared']].forEach(function(s){
+      g.push([T(s[2],sLabel),T('',sCell),T('',sCell),T('',sCell),T('',sCell),T('',sCell),T('',sCell),
+        Mf(`SUMIF(${colL(8)}$${r0}:${colL(8)}$${r1},"${s[1]}",${colL(7)}$${r0}:${colL(7)}$${r1})`, mpByStream[s[0]]||0, sMoneyB),T('',sCtr),T('',sCtr)]);
+    });
     const ws=gridToSheet(g,[{wch:14},{wch:24},{wch:14},{wch:7},{wch:16},{wch:16},{wch:18},{wch:20},{wch:11},{wch:11}],
       [mergeRow(0,0,9),mergeRow(1,0,9)]);
     XLSX.utils.book_append_sheet(wb, ws, 'Man Power');
@@ -7285,6 +7293,7 @@ function exportRateExcel(mode, opts){
     g.push([]);
     const hdr=['Nama','Qty','Cost/unit (Rp)','Tipe','/Bulan (Rp)','/Tahun (Rp)','/Project (Rp)','Stream','Dibebankan'];
     g.push(hdr.map(h=>T(h,sHdr)));
+    const supByStream={ob:0,coal_get:0,coal_haul:0,rental:0,hrm:0,shared:0};
     const r0=g.length+1;
     (typeof support!=='undefined'?support:[]).forEach(s=>{
       if(!(s.qty>0 && s.cost>0)) return;
@@ -7292,6 +7301,7 @@ function exportRateExcel(mode, opts){
       const cap=(typeof isCapexSupport==='function')&&isCapexSupport(s.name);
       const er=g.length+1;
       const base=inc?sCell:sExcl, money=inc?sMoney:sExcl;
+      if(inc){ const _pv=cap?(s.qty*s.cost):(supOpexAnnual(s)*years); let _sk=(s.stream||'shared'); if(supByStream[_sk]==null)_sk='shared'; supByStream[_sk]+=_pv; }
       if(cap){
         g.push([T(s.name,base),N(s.qty,sCtr),M(s.cost,money),T('CAPEX',sCtr),T('—',sCtr),T('—',sCtr),
           inc?Mf(`${colL(1)}${er}*${colL(2)}${er}`, s.qty*s.cost, sMoneyB):M(0,sExcl),
@@ -7311,6 +7321,15 @@ function exportRateExcel(mode, opts){
     if(r1>=r0){
       g.push([T('TOTAL /Project',sLabel),T('',sCell),T('',sCell),T('',sCell),T('',sCell),T('',sCell),
         Mf(`SUM(${colL(6)}${r0}:${colL(6)}${r1})`, 0, sMoneyB),T('',sCtr),T('',sCtr)]);
+    }
+    /* Subtotal per Stream (SUMIF — hidup). Akomodasi = baris mess/camp tetap di daftar atas; ditandai di stream-nya. */
+    if(r1>=r0){
+      g.push([]);
+      g.push([Object.assign({},T('📊 Subtotal Support per Stream — /Project (Rp)',sSect)),null,null,null,null,null,null,null,null]);
+      [['ob','OB','⛏️ OB'],['coal_get','COAL_GET','🪨 Coal Getting'],['coal_haul','COAL_HAUL','🚛 Coal Hauling'],['rental','RENTAL','💰 Rental'],['hrm','HRM','🛣️ HRM'],['shared','SHARED','🔀 Shared']].forEach(function(s){
+        g.push([T(s[2],sLabel),T('',sCell),T('',sCell),T('',sCell),T('',sCell),T('',sCell),
+          Mf(`SUMIF(${colL(7)}$${r0}:${colL(7)}$${r1},"${s[1]}",${colL(6)}$${r0}:${colL(6)}$${r1})`, supByStream[s[0]]||0, sMoneyB),T('',sCtr),T('',sCtr)]);
+      });
     }
     const ws=gridToSheet(g,[{wch:26},{wch:6},{wch:18},{wch:9},{wch:16},{wch:18},{wch:20},{wch:11},{wch:11}],
       [mergeRow(0,0,8),mergeRow(1,0,8)]);
