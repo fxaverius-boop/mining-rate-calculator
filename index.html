@@ -7024,11 +7024,18 @@ function exportRateExcel(mode, opts){
     g.push(hdr.map(h=>T(h,sHdr)));
     const tot={eq:0,op:0,tag:0,sh:0,all:0};
     const r0 = g.length + 1;  /* baris data pertama (Excel) */
+    /* Baris kontribusi (TETAP) di sheet sumber: B/C kolom value untuk tiap stream. */
+    const SRC_ROW = {ob:5,coal_get:6,coal_haul:7,rental:8,hrm:9};
     STM.forEach(([k,label,unit])=>{
       const er = g.length + 1;
       const eq=sc.directEquipPrj[k], op=sc.operPrj[k], tag=sc.taggedPrj[k], sh=sc.sharedPrj[k], all=sc.totalByStreamPrj[k];
       tot.eq+=eq; tot.op+=op; tot.tag+=tag; tot.sh+=sh; tot.all+=all;
-      g.push([T(label,sLabel),M(eq),M(op),M(tag),M(sh),
+      const SR=SRC_ROW[k]||5;
+      g.push([T(label,sLabel),
+        Mf(`'Equipment'!B${SR}`, eq, sMoney),                  /* ← sheet Equipment (Own+Maint) */
+        Mf(`'Man Power'!B${SR}`, op, sMoney),                  /* ← sheet Man Power (Operator) */
+        Mf(`'Support Facilities'!B${SR}`, tag, sMoney),        /* ← sheet Support (Direct Tagged) */
+        Mf(`'Support Facilities'!C${SR}`, sh, sMoney),         /* ← sheet Support (Shared alokasi) */
         Mf(`${colL(1)}${er}+${colL(2)}${er}+${colL(3)}${er}+${colL(4)}${er}`, all, sMoneyB), /* TOTAL = Σ komponen */
         M(sc.prodPrj[k]),U(sc.rateUSD[k],sUSDb),
         Uf(`${colL(7)}${er}*${RM}`, sc.rateUSD[k]*margin, sUSDb)]);            /* Rate = HPP × Margin */
@@ -7046,6 +7053,12 @@ function exportRateExcel(mode, opts){
     const g=[];
     g.push([Object.assign({},T('🚜 EQUIPMENT COST — per Stream'),{s:sTitle})]);
     g.push([Object.assign({},T(`Adj × PPN = ${adj} · CAPEX = Qty × Unit Price × Adj`),{s:sSub})]);
+    g.push([]);
+    /* Blok kontribusi ke TCO (baris TETAP 5-9, kolom B) → di-referensi dari sheet "TCO per Stream". */
+    g.push([Object.assign({},T('📌 Kontribusi ke "TCO per Stream" — Equipment (Own+Maint) /project (Rp)',sSect)),null,null,null,null,null,null]);
+    [['ob','⛏️ OB'],['coal_get','🪨 Coal Getting'],['coal_haul','🚛 Coal Hauling'],['rental','💰 Rental'],['hrm','🛣️ HRM']].forEach(function(s){
+      g.push([T(s[1],sLabel), M(sc.directEquipPrj[s[0]]||0, sMoneyB)]);
+    });
     g.push([]);
     const hdr=['Category','Merk','Model','Qty','Unit Price (Rp)','Adj×PPN / unit (Rp)','CAPEX Total (Rp)'];
     const streamLabel={ob:'⛏️ OB',coal_get:'🪨 Coal Getting',coal_haul:'🚛 Coal Hauling',rental:'💰 Rental',hrm:'🛣️ HRM',shared:'🔀 Shared'};
@@ -7085,6 +7098,12 @@ function exportRateExcel(mode, opts){
     const g=[];
     g.push([Object.assign({},T('👷 MAN POWER — Headcount & Payroll'),{s:sTitle})]);
     g.push([Object.assign({},T(`Biaya/bln = Qty × Gaji · /thn = ×12 · /project = ×${years}`),{s:sSub})]);
+    g.push([]);
+    /* Blok kontribusi ke TCO (baris TETAP 5-9, kolom B) → di-referensi dari "TCO per Stream". */
+    g.push([Object.assign({},T('📌 Kontribusi ke "TCO per Stream" — Operator /project (Rp)',sSect)),null,null,null,null,null,null,null,null,null]);
+    [['ob','⛏️ OB'],['coal_get','🪨 Coal Getting'],['coal_haul','🚛 Coal Hauling'],['rental','💰 Rental'],['hrm','🛣️ HRM']].forEach(function(s){
+      g.push([T(s[1],sLabel), M(sc.operPrj[s[0]]||0, sMoneyB)]);
+    });
     g.push([]);
     const hdr=['Departemen','Posisi','Level','Qty','Gaji/bln (Rp)','Biaya/bln (Rp)','Biaya/thn (Rp)','Biaya/project (Rp)','Stream','Dibebankan'];
     g.push(hdr.map(h=>T(h,sHdr)));
@@ -7302,6 +7321,12 @@ function exportRateExcel(mode, opts){
     const g=[];
     g.push([Object.assign({},T('🏗️ SUPPORT FACILITIES'),{s:sTitle})]);
     g.push([Object.assign({},T(`CAPEX = one-time (Qty × Cost) · OPEX = bulanan (Qty × Cost), /thn = ×12, /project = ×${years}`),{s:sSub})]);
+    g.push([]);
+    /* Blok kontribusi ke TCO (baris TETAP 5-9; B=Direct Tagged, C=Shared) → di-referensi dari "TCO per Stream". */
+    g.push([Object.assign({},T('📌 Kontribusi ke "TCO per Stream" — Direct Tagged (kol B) & Shared alokasi (kol C) /project (Rp)',sSect)),null,null,null,null,null,null,null,null]);
+    [['ob','⛏️ OB'],['coal_get','🪨 Coal Getting'],['coal_haul','🚛 Coal Hauling'],['rental','💰 Rental'],['hrm','🛣️ HRM']].forEach(function(s){
+      g.push([T(s[1],sLabel), M(sc.taggedPrj[s[0]]||0, sMoneyB), M(sc.sharedPrj[s[0]]||0, sMoneyB)]);
+    });
     g.push([]);
     const hdr=['Nama','Qty','Cost/unit (Rp)','Tipe','/Bulan (Rp)','/Tahun (Rp)','/Project (Rp)','Stream','Dibebankan'];
     g.push(hdr.map(h=>T(h,sHdr)));
