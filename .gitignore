@@ -6,6 +6,7 @@
 
 # Pengecualian — hanya ini yang di-publish:
 !.gitignore
+!.nojekyll
 !index.html
 !README.md
 
