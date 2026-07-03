@@ -293,6 +293,7 @@
           <button onclick="exportJSON()" class="more-item">💾 Export JSON (1 project)</button>
           <button onclick="exportJSON('all')" class="more-item">💾 Export Semua (bundle)</button>
           <button onclick="exportRateExcel('all')" class="more-item">⬇ Excel · Semua project</button>
+          <button id="ppt_btn" onclick="exportPptxTBE()" class="more-item">📊 PowerPoint (TBE)</button>
           <div style="height:1px;background:#3d342a;margin:4px 0"></div>
           <button onclick="openUnitPriceDB()" class="more-item">💰 Price DB</button>
           <button onclick="openUnitSpecDB()" class="more-item">📋 Spec DB</button>
@@ -6808,6 +6809,100 @@ function importProjectsJSON(input){
    EXPORT EXCEL — Calculator + perhitungan Rate + breakdown per stream
    (pembagian seperti TCO). Pakai xlsx-js-style untuk format rapi.
    ================================================================= */
+/* ================= EXPORT POWERPOINT (branding TBE) ================= */
+function exportPptxTBE(){
+  const go = () => { try { _buildPptxTBE(); } catch(e){ console.error(e); alert('PPT gagal: '+(e.message||e)); } };
+  if(typeof PptxGenJS!=='undefined'){ go(); return; }
+  const btn=document.getElementById('ppt_btn'); const old=btn?btn.textContent:''; if(btn) btn.textContent='⏳ memuat…';
+  const s=document.createElement('script');
+  s.src='https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js';
+  s.onload=()=>{ if(btn) btn.textContent=old; go(); };
+  s.onerror=()=>{ if(btn) btn.textContent=old; alert('Gagal memuat library PowerPoint (cek koneksi internet).'); };
+  document.head.appendChild(s);
+}
+function _buildPptxTBE(){
+  try{ if(typeof calc==='function') calc(); if(typeof tcoRender==='function') tcoRender(); }catch(e){}
+  const NAVY='0E2841', ORANGE='E97132', TEAL='156082', GREEN='196B24', GREY='E8E8E8', WHT='FFFFFF', DK='1C1917', LT='F5F5F4';
+  const projName=(typeof getActiveProject==='function')?getActiveProject():'Project';
+  const stamp=new Date().toISOString().slice(0,10);
+  const dom=id=>{ const e=document.getElementById(id); return e?(e.textContent||'—').trim():'—'; };
+  const rp=v=>'Rp '+Math.round(+v||0).toLocaleString('id-ID');
+  const P=new PptxGenJS(); P.defineLayout({name:'W',width:13.333,height:7.5}); P.layout='W';
+  const F='Aptos';
+  const header=(sl,title)=>{ sl.background={color:WHT};
+    sl.addShape('rect',{x:0,y:0,w:13.333,h:0.85,fill:{color:NAVY}});
+    sl.addShape('rect',{x:0,y:0.85,w:13.333,h:0.06,fill:{color:ORANGE}});
+    sl.addText('TBE',{x:0.35,y:0.12,w:1.4,h:0.6,fontSize:24,bold:true,color:WHT,fontFace:F});
+    sl.addText(title,{x:1.7,y:0.16,w:11.2,h:0.55,fontSize:18,bold:true,color:WHT,align:'right',fontFace:F});
+    sl.addText('TBE 2025 · '+projName+' · '+stamp,{x:0.35,y:7.05,w:12.6,h:0.3,fontSize:8,color:'A8A29E',align:'right'}); };
+  const kpiBox=(sl,x,y,w,label,val,sub,col)=>{ sl.addShape('rect',{x,y,w,h:1.55,fill:{color:LT},line:{color:col||TEAL,width:1.5}});
+    sl.addText(label,{x:x+0.15,y:y+0.12,w:w-0.3,h:0.35,fontSize:11,bold:true,color:col||TEAL,fontFace:F});
+    sl.addText(val,{x:x+0.15,y:y+0.5,w:w-0.3,h:0.6,fontSize:22,bold:true,color:DK,fontFace:F});
+    if(sub) sl.addText(sub,{x:x+0.15,y:y+1.1,w:w-0.3,h:0.3,fontSize:10,color:'78716C'}); };
+  const mkRows=(head,rows)=>{ const hr=head.map(h=>({text:h,options:{bold:true,color:WHT,fill:{color:NAVY},fontSize:10,align:'center'}}));
+    const body=rows.map((r,i)=>r.map((c,ci)=>({text:String(c),options:{fontSize:9,align:ci===0?'left':'right',fill:{color:i%2?'FFFFFF':'F1EEEA'}}}))); return [hr,...body]; };
+  const smallTbl=(sl,head,rows,colW,y)=>{ sl.addTable(mkRows(head,rows),{x:0.35,y:y||1.15,w:12.6,colW,border:{type:'solid',color:'D6D3D1',pt:0.5},valign:'middle',rowH:0.3}); };
+  const pageTbl=(title,head,rows,colW,footer)=>{ const per=16, pages=Math.max(1,Math.ceil(rows.length/per));
+    for(let p=0;p<pages;p++){ const sl=P.addSlide(); header(sl,title+(pages>1?(' ('+(p+1)+'/'+pages+')'):''));
+      smallTbl(sl,head,rows.slice(p*per,(p+1)*per),colW,1.15);
+      if(footer && p===pages-1) sl.addText(footer,{x:0.35,y:6.75,w:12.6,h:0.4,fontSize:10,bold:true,color:NAVY,fontFace:F}); } };
+
+  /* ---- TITLE ---- */
+  let s=P.addSlide(); s.background={color:NAVY};
+  s.addShape('rect',{x:0,y:5.1,w:13.333,h:0.09,fill:{color:ORANGE}});
+  s.addText('TBE',{x:0.7,y:0.7,w:4,h:1.1,fontSize:46,bold:true,color:WHT,fontFace:F});
+  s.addText('Powering Indonesia’s Mining Industry with Innovation & Sustainability',{x:0.75,y:1.85,w:11.5,h:0.5,fontSize:15,italic:true,color:'FDBA74',fontFace:F});
+  s.addText(projName,{x:0.7,y:3.0,w:12,h:1.6,fontSize:40,bold:true,color:WHT,fontFace:F});
+  s.addText('Cost & Rate Analysis · TCO McKinsey Framework · '+stamp,{x:0.75,y:5.35,w:12,h:0.5,fontSize:13,color:GREY});
+
+  /* ---- SLIDE 1: RESUME ---- */
+  s=P.addSlide(); header(s,'1 · Resume Produksi, Cost & Rate');
+  let pr={}; try{ if(typeof prodCalcCompute==='function') pr=prodCalcCompute(); }catch(e){}
+  const pv=id=>{ const e=document.getElementById(id); return e?(+e.value||0):0; };
+  kpiBox(s,0.35,1.15,3.05,'🎯 PRODUKSI / PROJECT',(Math.round(pr.prodProject||0)).toLocaleString('id-ID'),(pr.projYears||0)+' thn · '+(pr.fleet||0)+' fleet',GREEN);
+  kpiBox(s,3.55,1.15,3.05,'💰 TOTAL COST',dom('tco_kpi_cost'),'per project',ORANGE);
+  kpiBox(s,6.75,1.15,3.05,'📉 HPP',dom('tco_kpi_hpp'),dom('tco_kpi_hpp_unit'),TEAL);
+  kpiBox(s,9.95,1.15,3.05,'🎯 RATE RECOM',dom('tco_kpi_rate'),dom('tco_kpi_rate_unit'),'A02B93');
+  s.addText('Parameter Produksi',{x:0.35,y:3.0,w:12,h:0.35,fontSize:13,bold:true,color:NAVY,fontFace:F});
+  smallTbl(s,['Parameter','Nilai','','Parameter','Nilai'],[
+    ['PTY (Productivity)',(pr.pty||0).toLocaleString('id-ID')+' /jam','','Produksi / Bulan',(Math.round(pr.prodMonth||0)).toLocaleString('id-ID')],
+    ['PA (Physical Avail.)',pv('pc_pa')+' %','','Produksi / Tahun (1 fleet)',(Math.round(pr.prodYear||0)).toLocaleString('id-ID')],
+    ['UA (Use of Avail.)',pv('pc_ua')+' %','','Produksi / Tahun (total)',(Math.round((pr.prodYear||0)*(pr.fleet||0))).toLocaleString('id-ID')],
+    ['MOHH (jam/bln)',pv('pc_mohh'),'','Jumlah Fleet',(pr.fleet||0)],
+    ['Tahun Project',(pr.projYears||0),'','Produksi / Project',(Math.round(pr.prodProject||0)).toLocaleString('id-ID')],
+  ],[3.0,2.3,0.6,3.4,3.3],3.4);
+
+  /* ---- SLIDE 2: COST BREAKDOWN (McKinsey) ---- */
+  s=P.addSlide(); header(s,'2 · Cost Breakdown — CAPEX · OPEX · Overhead');
+  let comp={total:0,layerDisplay:{}}; try{ if(typeof tcoCompute==='function') comp=tcoCompute('all'); }catch(e){}
+  const L=comp.layerDisplay||{}; const tot=comp.total||0;
+  const layers=[['CAPEX · Equipment',+L['CAPEX-Equipment']||0,ORANGE],['CAPEX · Infra',+L['CAPEX-Infra']||0,'D97706'],['OPEX',+L.OPEX||0,GREEN],['Overhead',+L.Overhead||0,TEAL]];
+  s.addText('Total Cost / Project: '+rp(tot),{x:0.35,y:1.1,w:12.6,h:0.4,fontSize:15,bold:true,color:NAVY,fontFace:F});
+  smallTbl(s,['Layer','Nilai (Rp)','% of Total'],layers.map(l=>[l[0],rp(l[1]),tot>0?((l[1]/tot*100).toFixed(1)+'%'):'0%']).concat([['TOTAL',rp(tot),'100%']]),[5.0,4.6,3.0],1.6);
+  try{ s.addChart('bar',[{name:'Rp',labels:layers.map(l=>l[0]),values:layers.map(l=>Math.round(l[1]))}],{x:0.35,y:4.4,w:12.6,h:2.5,barDir:'col',showValue:false,chartColors:[ORANGE,'D97706',GREEN,TEAL],catAxisLabelFontSize:9,valAxisLabelFontSize:8,showLegend:false}); }catch(e){}
+
+  /* ---- SLIDE 3: EQUIPMENT ---- */
+  const eqRows=(typeof equip!=='undefined'?equip:[]).filter(e=>(+e.qty||0)>0).map(e=>[ (e.cat||'')+' '+(e.merk||''), e.model||'', (+e.qty||0), rp((+e.price||0)*(+($('adj')?.value||1.3))*(+e.qty||0)) ]);
+  pageTbl('3 · Detail Equipment Cost',['Unit','Model','Qty','CAPEX (Rp)'],eqRows.length?eqRows:[['(tak ada equipment)','','','']],[4.2,3.8,1.4,3.2]);
+
+  /* ---- SLIDE 4: MAINTENANCE ---- */
+  let mRows=[]; try{ if(typeof maintCompute==='function'){ const mUsd=+($('m_usd')?.value)||16500, yrs=+($('years')?.value)||3; maintCompute().rows.forEach(r=>{ if(!(r.e.qty>0))return; const perYr=(r.schedDirect_perUnit+r.unschedDirect_perUnit+(r.battery_perUnit||0))*mUsd; const fy=perYr*r.e.qty; mRows.push([ (r.e.cat||'')+': '+(r.e.merk||'')+' '+(r.e.model||''), (+r.e.qty||0), rp(fy/12), rp(fy), rp(fy*yrs) ]); }); } }catch(e){}
+  pageTbl('4 · Detail Maintenance Cost',['Unit','Qty','Fleet /Bulan','Fleet /Tahun','Fleet /Project'],mRows.length?mRows:[['(tak ada)','','','','']],[4.6,1.0,2.3,2.3,2.4]);
+
+  /* ---- SLIDE 5: SUPPORT & FACILITIES ---- */
+  const yrs=+($('years')?.value)||3;
+  const supRows=(typeof support!=='undefined'?support:[]).filter(x=>(x.qty>0&&x.cost>0)&&(typeof supInc!=='function'||supInc(x))).map(x=>{ const cap=(typeof isCapexSupport==='function')&&isCapexSupport(x.name); const prj=cap?(x.qty*x.cost):((typeof supOpexAnnual==='function'?supOpexAnnual(x):0)*yrs); return [x.name, (+x.qty||0), cap?'CAPEX':'OPEX', rp(prj)]; });
+  pageTbl('5 · Detail Support & Facilities',['Nama','Qty','Tipe','/Project (Rp)'],supRows.length?supRows:[['(tak ada)','','','']],[6.0,1.2,1.6,3.8]);
+
+  /* ---- SLIDE 6: MANPOWER ---- */
+  let opYr=0,totYr=0; const mpRows=[];
+  (typeof manpower!=='undefined'?manpower:[]).filter(m=>(+m.qty||0)>0&&(typeof mpInc!=='function'||mpInc(m))).forEach(m=>{ const yr=(typeof mpAnnual==='function')?mpAnnual(m):0; totYr+=yr; const p=(m.pos||'').toLowerCase(); const isOp=/operator|driver|helper/.test(p)&&!/\blv\b|light\s*vehicle|\bbus\b|crew/.test(p); if(isOp)opYr+=yr; mpRows.push([m.pos||'',(+m.qty||0),rp(+m.sal||0),rp(yr*yrs)]); });
+  const mpFooter='Total Gaji Manpower /project: '+rp(totYr*yrs)+'   ·   Operator: '+rp(opYr*yrs)+'   ·   Staff (non-operator): '+rp((totYr-opYr)*yrs);
+  pageTbl('6 · Detail Manpower',['Posisi','Qty','Gaji/bln (Rp)','Biaya/project (Rp)'],mpRows.length?mpRows:[['(tak ada)','','','']],[5.4,1.2,2.6,3.4],mpFooter);
+
+  P.writeFile({fileName:'Presentasi-TBE_'+String(projName).replace(/[^\w-]+/g,'_')+'_'+stamp+'.pptx'});
+}
+
 /* Toolbar overflow menu */
 function toggleMoreMenu(e){ if(e) e.stopPropagation(); const m=document.getElementById('more_menu'); if(m) m.style.display=(m.style.display==='block')?'none':'block'; }
 document.addEventListener('click', function(e){ const m=document.getElementById('more_menu'), b=document.getElementById('more_btn'); if(m && m.style.display==='block' && b && !b.contains(e.target)) m.style.display='none'; });
