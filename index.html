@@ -274,7 +274,10 @@
       </select>
       <div class="flex gap-1 items-center" style="padding:4px 8px;background:#14110e;border:1px solid #78350f;border-radius:8px">
         <span class="text-[10px]" style="color:#fbbf24;font-weight:700;letter-spacing:.5px">PROJECT</span>
-        <select id="project_select" class="num-in" style="width:auto;min-width:160px;font-weight:700;padding:4px 8px" onchange="switchProject(this.value)" title="Pilih project aktif"></select>
+        <div style="position:relative;display:inline-block">
+          <button id="project_btn" onclick="toggleProjectPanel(event)" class="num-in" style="width:auto;min-width:170px;max-width:260px;font-weight:700;padding:4px 8px;text-align:left;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="Pilih project / kelola folder">— ▾</button>
+          <div id="project_panel" onclick="event.stopPropagation()" style="display:none;position:absolute;top:100%;left:0;margin-top:4px;z-index:60;min-width:300px;max-height:60vh;overflow:auto;background:#1a1410;border:1px solid #78350f;border-radius:8px;box-shadow:0 10px 28px rgba(0,0,0,.55);padding:6px"></div>
+        </div>
         <button class="btn-sec" onclick="addProject()" title="Tambah project baru (reset semua data calculator)" style="padding:4px 8px;font-size:11px">➕</button>
         <button class="btn-sec" onclick="duplicateProject()" title="Duplikat project aktif (copy semua data ke nama baru, project lama TIDAK terhapus)" style="padding:4px 8px;font-size:11px">📋</button>
         <button class="btn-sec" onclick="renameProject()" title="Rename project aktif" style="padding:4px 8px;font-size:11px">✏️</button>
@@ -1715,7 +1718,8 @@
   var SUPABASE_URL = 'https://bdafxbhkzdqxkxsfoomr.supabase.co';
   var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJkYWZ4YmhremRxeGt4c2Zvb21yIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3NDM3NjcsImV4cCI6MjA5NzMxOTc2N30.C7OFhXNpRlaj9n05UFuQYehz0IUE3rqTs4SNi1tYKsQ';
   var SYNC_KEYS = ['rc_projects_v1', 'rc_active_project_v1', 'rc_support_catalog_v1', 'rc_mp_catalog_v1', 'rc_project_history_v1',
-    'rc_plant_manpower_v1', 'rc_maint_v1', 'rc_mess_rules_v1']; // katalog global yang memengaruhi perhitungan TCO
+    'rc_plant_manpower_v1', 'rc_maint_v1', 'rc_mess_rules_v1', // katalog global yang memengaruhi perhitungan TCO
+    'rc_folders_v1', 'rc_project_folders_v1']; // folder project (grouping tampilan, sync tim)
   var DEBOUNCE_MS = 1500;
 
   // Jalankan fn saat DOM siap; jika sudah lewat, jalankan sekarang.
@@ -6275,14 +6279,114 @@ function setActiveProject(n){
   }
 })();
 
-function refreshProjectDropdown(){
-  const sel = $('project_select'); if(!sel) return;
-  const projs = readProjects();
-  const active = getActiveProject();
-  sel.innerHTML = Object.keys(projs).sort().map(n=>
-    `<option value="${n.replace(/"/g,'&quot;')}"${n===active?' selected':''}>${n}</option>`
-  ).join('');
+/* ============ FOLDER PROJECT (lapisan grouping — TIDAK mengubah rc_projects_v1) ============
+   rc_folders_v1 = ["Folder A","Folder B"] (sync tim). rc_project_folders_v1 = {projectName: folder}
+   (sync tim). Project tak terpetakan → grup virtual "Tanpa Folder". Status buka/tutup folder
+   disimpan lokal (rc_folder_collapse_v1, TIDAK sync). */
+const LS_FOLDERS = 'rc_folders_v1';
+const LS_PROJECT_FOLDERS = 'rc_project_folders_v1';
+const LS_FOLDER_COLLAPSE = 'rc_folder_collapse_v1';
+const NO_FOLDER = 'Tanpa Folder';
+let _movePickFor = null;
+
+function readFolders(){ try{ const a=JSON.parse(localStorage.getItem(LS_FOLDERS)||'[]'); return Array.isArray(a)?a:[]; }catch(e){ return []; } }
+function writeFolders(a){ localStorage.setItem(LS_FOLDERS, JSON.stringify(a)); if(LocalFS.isConnected()) LocalFS.saveFile('folders', a); }
+function readProjFolders(){ try{ return JSON.parse(localStorage.getItem(LS_PROJECT_FOLDERS)||'{}')||{}; }catch(e){ return {}; } }
+function writeProjFolders(m){ localStorage.setItem(LS_PROJECT_FOLDERS, JSON.stringify(m)); if(LocalFS.isConnected()) LocalFS.saveFile('project_folders', m); }
+function getProjectFolder(name){ const f=readProjFolders()[name]; return (f && readFolders().indexOf(f)>=0) ? f : NO_FOLDER; }
+function setProjectFolder(name, folder){ const m=readProjFolders(); if(!folder||folder===NO_FOLDER) delete m[name]; else m[name]=folder; writeProjFolders(m); }
+function renameProjectFolderKey(oldN,newN){ const m=readProjFolders(); if(oldN in m){ m[newN]=m[oldN]; delete m[oldN]; writeProjFolders(m); } }
+function removeProjectFolderKey(name){ const m=readProjFolders(); if(name in m){ delete m[name]; writeProjFolders(m); } }
+function readFolderCollapse(){ try{ return JSON.parse(localStorage.getItem(LS_FOLDER_COLLAPSE)||'{}')||{}; }catch(e){ return {}; } }
+function writeFolderCollapse(m){ localStorage.setItem(LS_FOLDER_COLLAPSE, JSON.stringify(m)); }
+function toggleFolderCollapse(f){ const m=readFolderCollapse(); m[f]=!m[f]; writeFolderCollapse(m); renderProjectPanel(); }
+
+function newFolder(forMoveProject){
+  const name=(prompt('Nama folder baru:')||'').trim();
+  if(!name) return null;
+  if(name===NO_FOLDER){ alert('Nama "'+NO_FOLDER+'" dipakai sistem, pilih nama lain.'); return null; }
+  const fs=readFolders(); if(fs.indexOf(name)<0){ fs.push(name); writeFolders(fs); }
+  if(forMoveProject){ setProjectFolder(forMoveProject, name); _movePickFor=null; }
+  renderProjectPanel(); return name;
 }
+function renameFolder(old){
+  const name=(prompt('Rename folder "'+old+'" ke:', old)||'').trim();
+  if(!name||name===old) return;
+  if(name===NO_FOLDER){ alert('Nama "'+NO_FOLDER+'" dipakai sistem.'); return; }
+  const fs=readFolders(); if(fs.indexOf(name)>=0){ alert('Folder "'+name+'" sudah ada.'); return; }
+  const i=fs.indexOf(old); if(i>=0){ fs[i]=name; writeFolders(fs); }
+  const m=readProjFolders(); Object.keys(m).forEach(p=>{ if(m[p]===old) m[p]=name; }); writeProjFolders(m);
+  renderProjectPanel();
+}
+function deleteFolder(name){
+  const m0=readProjFolders(); const inside=Object.keys(m0).filter(p=>m0[p]===name).length;
+  if(!confirm('Hapus folder "'+name+'"?'+(inside?('\n'+inside+' project di dalamnya akan pindah ke "'+NO_FOLDER+'" (project TIDAK dihapus).'):''))) return;
+  writeFolders(readFolders().filter(f=>f!==name));
+  const m=readProjFolders(); Object.keys(m).forEach(p=>{ if(m[p]===name) delete m[p]; }); writeProjFolders(m);
+  renderProjectPanel();
+}
+function moveProjectToFolder(name, folder){ setProjectFolder(name, folder); _movePickFor=null; renderProjectPanel(); }
+function startMovePick(name){ _movePickFor = (_movePickFor===name?null:name); renderProjectPanel(); }
+
+function toggleProjectPanel(e){ if(e) e.stopPropagation(); const p=$('project_panel'); if(!p) return;
+  const show=(p.style.display!=='block'); p.style.display=show?'block':'none';
+  if(show){ _movePickFor=null; const c=readFolderCollapse(); c[getProjectFolder(getActiveProject())]=false; writeFolderCollapse(c); renderProjectPanel(); } }
+function closeProjectPanel(){ const p=$('project_panel'); if(p) p.style.display='none'; _movePickFor=null; }
+function pickProject(name){ closeProjectPanel(); switchProject(name); }
+
+function _pfEsc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function _pfJ(s){ return JSON.stringify(String(s)); }
+
+function renderProjectPanel(){
+  const panel=$('project_panel'); if(!panel) return;
+  const projs=readProjects();
+  const names=Object.keys(projs).sort((a,b)=>a.localeCompare(b));
+  const active=getActiveProject();
+  const collapse=readFolderCollapse();
+  const groups={}; names.forEach(n=>{ const f=getProjectFolder(n); (groups[f]=groups[f]||[]).push(n); });
+  let folderList=readFolders().slice().sort((a,b)=>a.localeCompare(b));
+  Object.keys(groups).forEach(f=>{ if(f!==NO_FOLDER && folderList.indexOf(f)<0) folderList.push(f); });
+  folderList=folderList.filter(f=>f!==NO_FOLDER); folderList.push(NO_FOLDER);
+  const pickFolders=readFolders().slice().sort((a,b)=>a.localeCompare(b));
+  let html='';
+  folderList.forEach(f=>{
+    const items=groups[f]||[];
+    if(f===NO_FOLDER && items.length===0) return;
+    const open = collapse[f]!==true;
+    const canEdit = f!==NO_FOLDER;
+    html+='<div style="margin-bottom:2px"><div style="display:flex;align-items:center;gap:4px;padding:4px 6px;border-radius:6px;background:#241a12">';
+    html+='<span onclick="toggleFolderCollapse('+_pfJ(f)+')" style="cursor:pointer;flex:1;display:flex;align-items:center;gap:5px;font-weight:700;color:#fbbf24;font-size:12px">'
+        +'<span style="width:10px;display:inline-block">'+(open?'▾':'▸')+'</span>'+(open?'📂':'📁')+' '+_pfEsc(f)+' <span style="color:#a8a29e;font-weight:400">('+items.length+')</span></span>';
+    if(canEdit){
+      html+='<span onclick="renameFolder('+_pfJ(f)+')" title="Rename folder" style="cursor:pointer;font-size:11px">✏️</span>';
+      html+='<span onclick="deleteFolder('+_pfJ(f)+')" title="Hapus folder" style="cursor:pointer;font-size:11px">🗑</span>';
+    }
+    html+='</div>';
+    if(open){ items.forEach(n=>{
+      const act=n===active;
+      html+='<div style="display:flex;align-items:center;gap:4px;padding:3px 6px 3px 20px">';
+      html+='<span onclick="pickProject('+_pfJ(n)+')" style="cursor:pointer;flex:1;font-size:12px;color:'+(act?'#fef3c7':'#e7e5e4')+';font-weight:'+(act?'700':'400')+';white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title='+_pfJ(n)+'>'+(act?'● ':'○ ')+_pfEsc(n)+'</span>';
+      html+='<span onclick="startMovePick('+_pfJ(n)+')" title="Pindah ke folder lain" style="cursor:pointer;font-size:11px">📁→</span></div>';
+      if(_movePickFor===n){
+        html+='<div style="margin:2px 6px 6px 20px;padding:5px;background:#0f0b08;border:1px solid #3d342a;border-radius:6px"><div style="font-size:10px;color:#a8a29e;margin-bottom:3px">Pindahkan ke:</div>';
+        pickFolders.forEach(ff=>{ if(ff===getProjectFolder(n)) return; html+='<div onclick="moveProjectToFolder('+_pfJ(n)+','+_pfJ(ff)+')" style="cursor:pointer;font-size:11px;padding:2px 4px;color:#fbbf24">📁 '+_pfEsc(ff)+'</div>'; });
+        if(getProjectFolder(n)!==NO_FOLDER) html+='<div onclick="moveProjectToFolder('+_pfJ(n)+','+_pfJ(NO_FOLDER)+')" style="cursor:pointer;font-size:11px;padding:2px 4px;color:#e7e5e4">✖ Keluarkan ke '+NO_FOLDER+'</div>';
+        html+='<div onclick="newFolder('+_pfJ(n)+')" style="cursor:pointer;font-size:11px;padding:2px 4px;color:#84cc16">＋ Folder baru…</div></div>';
+      }
+    }); }
+    html+='</div>';
+  });
+  html+='<div onclick="newFolder()" style="cursor:pointer;margin-top:4px;padding:6px;border-top:1px solid #3d342a;color:#84cc16;font-size:12px;font-weight:700">＋ Folder baru</div>';
+  panel.innerHTML=html;
+}
+
+function refreshProjectDropdown(){
+  const btn=$('project_btn');
+  if(btn){ const a=getActiveProject(); btn.textContent=a+'  ▾'; btn.title='Project aktif: '+a+' — klik untuk pilih / kelola folder'; }
+  renderProjectPanel();
+}
+/* Klik di luar panel → tutup (klik di dalam sudah di-stopPropagation di elemen panel). */
+document.addEventListener('click', function(e){ const p=$('project_panel'); if(p && p.style.display==='block'){ const b=$('project_btn'); if(b && b.contains(e.target)) return; p.style.display='none'; _movePickFor=null; } });
 
 /* Switch to an existing project: save current scenario to the CURRENT active
    project key, then load the selected project's scenario (or reset defaults
@@ -6337,6 +6441,7 @@ function addProject(){
   /* Create empty slot for the new project (will get populated on first calc/save). */
   projs[name] = null;
   writeProjects(projs);
+  setProjectFolder(name, getProjectFolder(curActive)); /* project baru ikut folder project aktif */
   setActiveProject(name);
   _resetCalculatorToDefaults();
   refreshProjectDropdown();
@@ -6351,6 +6456,7 @@ function renameProject(){
   if(!name || name===cur) return;
   if(name in projs){ alert('Project "'+name+'" sudah ada.'); return; }
   projs[name] = projs[cur]; delete projs[cur];
+  renameProjectFolderKey(cur, name); /* bawa assignment folder ikut nama baru */
   writeProjects(projs); setActiveProject(name); refreshProjectDropdown();
 }
 
@@ -6373,6 +6479,7 @@ function duplicateProject(){
     alert('Gagal duplikat: '+err.message); return;
   }
   writeProjects(projs);
+  setProjectFolder(name, getProjectFolder(cur)); /* duplikat ikut folder project asal */
   setActiveProject(name);
   refreshProjectDropdown();
   /* Load the freshly-cloned scenario into the UI (its data is identical to cur). */
@@ -6390,6 +6497,7 @@ function deleteProject(){
   if(names.length<=1){ alert('Minimal harus ada 1 project.'); return; }
   if(!confirm('Hapus project "'+cur+'"? Data tidak bisa dikembalikan.')) return;
   delete projs[cur];
+  removeProjectFolderKey(cur); /* bersihkan assignment folder */
   writeProjects(projs);
   /* Switch to another project */
   const next = Object.keys(projs)[0];
