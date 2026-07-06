@@ -3672,7 +3672,7 @@ document.querySelectorAll('.tab-btn[data-tab]').forEach(b=>{
    Expense = Capex awal (DP alat + CAPEX infra) di M0 + Opex bulanan (dari computeModalAwal).
    State (cfState) disimpan di scenario → ikut save & sync tim.
    ================================================================ */
-let cfState = { lag:1, prod:{}, basis:'ob', flat:null };
+let cfState = { lag:1, prod:{}, basis:'ob', flat:null, rate:null };
 let _cfChart = null;
 function cfFmtB(v){ const n=+v||0, a=Math.abs(n); if(a>=1e9) return (n/1e9).toFixed(2)+' M'; if(a>=1e6) return (n/1e6).toFixed(0)+' jt'; return Math.round(n).toLocaleString('id-ID'); }
 function cfCompute(){
@@ -3690,16 +3690,19 @@ function cfCompute(){
   /* flat/bulan default = produksi stream terpilih ÷ 12; fallback ke produksi total ÷ N kalau stream 0. */
   const autoFlat = streamAnnual>0 ? streamAnnual/12 : (N>0 ? (cf.prod||0)/N : 0);
   const effFlat  = (cfState.flat!=null && cfState.flat!=='') ? (+cfState.flat||0) : autoFlat;
+  /* Rate Rekomendasi (USD/unit) dari TCO — OB=rateBcm, Coal=rateTon. Bisa dioverride manual. */
+  const autoRate = basis==='coal' ? (+cf.rateTon||0) : (+cf.rateBcm||0);
+  const rateUSD  = (cfState.rate!=null && cfState.rate!=='') ? (+cfState.rate||0) : autoRate;
+  const usdRp    = +cf.usd || 16500;
+  const rateIDR  = rateUSD * usdRp;                            /* Rp per unit */
   const prod = [];
   for(let t=1;t<=N;t++){ const ov = cfState.prod && cfState.prod[t]; prod[t] = (ov!=null && ov!=='') ? (+ov||0) : effFlat; }
-  const sumProd = prod.slice(1,N+1).reduce((a,b)=>a+(b||0),0);
-  const revFactor = sumProd>0 ? (cf.revenue||0)/sumProd : 0;   /* Rp/unit → Σrevenue = cf.revenue */
   const rows=[]; let cash=0;
   for(let t=0;t<=totalMonths;t++){
     const isOp = (t>=1 && t<=N);
     const p = isOp ? (prod[t]||0) : 0;
     const src = t - lag;
-    const revenue = (src>=1 && src<=N) ? (prod[src]||0)*revFactor : 0;
+    const revenue = (src>=1 && src<=N) ? (prod[src]||0)*rateIDR : 0;  /* = produksi × Rate Rekomendasi */
     const capex = (t===0) ? upfront : 0;
     const comp = isOp ? {inst:ma.installmentMo||0, sal:ma.moSalary||0, maint:ma.moMaint||0, sup:ma.moSupport||0, akom:ma.moAkom||0}
                       : {inst:0,sal:0,maint:0,sup:0,akom:0};
@@ -3714,7 +3717,7 @@ function cfCompute(){
   const totalRev = rows.reduce((a,r)=>a+r.revenue,0);
   const totalExp = rows.reduce((a,r)=>a+r.expense,0);
   const netMargin = totalRev-totalExp;
-  return {rows,N,lag,upfront,totalRev,totalExp,netMargin,peak:-peak,breakEven:be,marginPct:totalRev>0?netMargin/totalRev*100:0,cf,ma,basis,unit,effFlat,streamAnnual};
+  return {rows,N,lag,upfront,totalRev,totalExp,netMargin,peak:-peak,breakEven:be,marginPct:totalRev>0?netMargin/totalRev*100:0,cf,ma,basis,unit,effFlat,streamAnnual,rateUSD,rateIDR,usdRp};
 }
 function cfRender(){
   const host=$('cf_body'); if(!host) return;
@@ -3728,9 +3731,10 @@ function cfRender(){
   html+='<label class="text-xs" style="color:#a8a29e">Termin pembayaran (bulan)<br><input type="number" min="0" value="'+M.lag+'" onchange="cfSetLag(this.value)" class="num-in mt-1" style="width:90px" title="Kas revenue masuk berapa bulan setelah produksi"></label>';
   html+='<label class="text-xs" style="color:#a8a29e">Basis Produksi<br><select onchange="cfSetBasis(this.value)" class="num-in mt-1" style="width:160px" title="Produksi ditarik dari perhitungan stream terpilih (produksi/tahun ÷ 12)"><option value="ob"'+(M.basis==='ob'?' selected':'')+'>⛏️ OB (BCM)</option><option value="coal"'+(M.basis==='coal'?' selected':'')+'>🪨 Coal Getting (Ton)</option></select></label>';
   html+='<label class="text-xs" style="color:#a8a29e">Produksi Bulanan flat ('+M.unit+')<br><input type="number" min="0" value="'+Math.round(M.effFlat)+'" onchange="cfSetFlat(this.value)" class="num-in mt-1" style="width:140px" title="Set SEMUA bulan ke nilai ini (flat). Kosongkan → otomatis dari '+(M.basis==='coal'?'Coal Getting':'OB')+'/tahun ÷ 12."></label>';
+  html+='<label class="text-xs" style="color:#a8a29e">Rate Rekomendasi ($/'+M.unit+')<br><input type="number" step="0.0001" min="0" value="'+M.rateUSD.toFixed(4)+'" onchange="cfSetRate(this.value)" class="num-in mt-1" style="width:130px" title="Rate rekomendasi dari TCO. Revenue = Produksi × Rate. Kosongkan → ikut nilai TCO."></label>';
   html+='<button class="btn btn-sec" onclick="cfResetProd()" style="padding:5px 10px;font-size:11px" title="Hapus semua edit per-sel → kembali flat">↺ Reset ke flat</button>';
   html+='</div>';
-  html+='<div class="text-xs" style="color:#a8a29e;margin-bottom:12px">Revenue = <b style="color:#fde68a">Produksi × Rate Rekomendasi</b> (margin '+rateTxt+'×) · total revenue = Total Cost × margin, dibagi menurut profil produksi · Durasi <b>'+M.N+' bln</b> + termin '+M.lag+' · Basis <b>'+(M.basis==='coal'?'Coal Getting':'OB')+'</b> ('+cfFmtB(M.streamAnnual)+' '+M.unit+'/th). Sel Produksi bisa diedit satu-satu.</div>';
+  html+='<div class="text-xs" style="color:#a8a29e;margin-bottom:12px">Revenue = <b style="color:#fde68a">Produksi × Rate</b> · Rate Rekomendasi TCO = <b style="color:#fde68a">$'+M.rateUSD.toFixed(4)+'/'+M.unit+'</b> (≈ Rp '+cfFmtB(M.rateIDR)+'/'+M.unit+') · kas masuk +'+M.lag+' bln · Durasi <b>'+M.N+' bln</b> · Basis <b>'+(M.basis==='coal'?'Coal Getting':'OB')+'</b> ('+cfFmtB(M.streamAnnual)+' '+M.unit+'/th). Sel Produksi bisa diedit satu-satu.</div>';
   /* ----- KPI ----- */
   html+='<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px">';
   html+=kpi('💰 Kebutuhan Modal Puncak','Rp '+cfFmtB(M.peak),'kas paling negatif','#f87171','Titik kas terdalam (kumulatif) — modal maksimum yang harus disiapkan');
@@ -3751,7 +3755,7 @@ function cfRender(){
   let pr='<tr>'+thL('Produksi','Produksi/bulan ('+M.unit+'). Default rata = '+(M.basis==='coal'?'Coal Getting':'OB')+'/tahun ÷ 12. Edit per sel, atau set "Produksi Bulanan flat".','#fbbf24',true);
   rows.forEach(r=>{ if(r.t>=1 && r.t<=M.N){ pr+='<td style="padding:2px 4px"><input type="number" value="'+Math.round(r.p)+'" onchange="cfSetProd('+r.t+',this.value)" style="width:74px;background:#0f0b08;color:#fef3c7;border:1px solid #3d342a;border-radius:4px;padding:2px 4px;font-size:10px;text-align:right"></td>'; } else { pr+='<td style="padding:3px 8px;text-align:right;color:#71717a">—</td>'; } });
   html+=pr+'</tr>';
-  html+=line('Revenue', rows.map(r=>r.revenue?cfFmtB(r.revenue):'—'), '#84cc16', false, '= Produksi × Rate Rekomendasi, kas masuk +'+M.lag+' bln (termin). Σ = Total Cost × margin '+rateTxt+'×.');
+  html+=line('Revenue', rows.map(r=>r.revenue?cfFmtB(r.revenue):'—'), '#84cc16', false, '= Produksi × Rate ($'+M.rateUSD.toFixed(4)+'/'+M.unit+' × Rp '+M.usdRp+'/$ = Rp '+cfFmtB(M.rateIDR)+'/'+M.unit+'), kas masuk +'+M.lag+' bln.');
   html+=line('— Capex (M0)', rows.map(r=>r.capex?('('+cfFmtB(r.capex)+')'):'—'), '#38bdf8', false, 'Modal awal di M0 = DP Equipment + CAPEX Infra (dari Modal Awal / tab TCO).');
   html+=line('— Cicilan Alat', rows.map(r=>r.comp.inst?cfFmtB(r.comp.inst):'—'), '#fdba74', false, '= cicilan/bln = CAPEX alat × (1 − DP%) ÷ tenor (Rental Config).');
   html+=line('— Manpower', rows.map(r=>r.comp.sal?cfFmtB(r.comp.sal):'—'), '#22d3ee', false, '= Σ gaji manpower / bln (tab Calculator → Man Power).');
@@ -3779,8 +3783,9 @@ function cfRender(){
 }
 function cfSetLag(v){ cfState.lag=Math.max(0,Math.round(+v||0)); if(typeof markDirty==='function') markDirty(); cfRender(); }
 function cfSetProd(t,v){ if(!cfState.prod) cfState.prod={}; if(v===''||v==null) delete cfState.prod[t]; else cfState.prod[t]=+v||0; if(typeof markDirty==='function') markDirty(); cfRender(); }
-function cfSetBasis(v){ cfState.basis=(v==='coal'?'coal':'ob'); cfState.flat=null; cfState.prod={}; if(typeof markDirty==='function') markDirty(); cfRender(); }
+function cfSetBasis(v){ cfState.basis=(v==='coal'?'coal':'ob'); cfState.flat=null; cfState.rate=null; cfState.prod={}; if(typeof markDirty==='function') markDirty(); cfRender(); }
 function cfSetFlat(v){ cfState.flat=(v===''||v==null)?null:(+v||0); cfState.prod={}; if(typeof markDirty==='function') markDirty(); cfRender(); }
+function cfSetRate(v){ cfState.rate=(v===''||v==null)?null:(+v||0); if(typeof markDirty==='function') markDirty(); cfRender(); }
 function cfResetProd(){ cfState.prod={}; if(typeof markDirty==='function') markDirty(); cfRender(); }
 
 /* ================================================================
@@ -5673,8 +5678,8 @@ function calc(){
     mode==='rental_mo'  ? hppRentalMo :
     hppTon;
   const rate = hpp*margin;
-  /* Cache untuk tab Cashflow — total biaya & revenue (=biaya×margin) yang konsisten dgn KPI. */
-  try{ window._cfCache = {cost:grandTotal, revenue:grandTotal*margin, margin:margin, prod:produksiProject, usd:usd}; }catch(e){}
+  /* Cache untuk tab Cashflow — total biaya/revenue + Rate Rekomendasi (USD/unit) per basis. */
+  try{ window._cfCache = {cost:grandTotal, revenue:grandTotal*margin, margin:margin, prod:produksiProject, usd:usd, rateBcm:rateBcm, rateTon:rateTon}; }catch(e){}
 
   /* Rental mode: hide 3 production KPIs (Pty Fleet, Produksi/yr, Produksi/Prj) dan
      tampilkan 3 rental-specific KPIs (Total Fleet, Unit-Hours, Scheme). */
@@ -6735,7 +6740,7 @@ function _resetCalculatorToDefaults(){
   equip = structuredClone(DEFAULT_EQUIP);
   support = defaultSupport();
   manpower = defaultMP();
-  cfState = {lag:1, prod:{}, basis:'ob', flat:null};
+  cfState = {lag:1, prod:{}, basis:'ob', flat:null, rate:null};
   [['years','3'],['usd','16500'],['qnty','1'],['pa','0.85'],['ua','0.55'],['hrs','8760'],['adj','1.3'],['margin','1.2'],
    ['l_eff','0.9'],['l_prep','60'],
    ['h_eff','0.9'],['h_dt','60'],['h_dp','60'],['h_lp','60'],['h_dist','1'],['maint','0'],['maint_factor','100'],['mp_ratio','2.7'],['akom_cost','2000000'],
@@ -6770,7 +6775,7 @@ function snapshotScenario(){
     hauler:{merk:g('h_merk'),model:g('h_model'),vessel:g('h_vessel'),eff:g('h_eff'),dt:g('h_dt'),dp:g('h_dp'),lp:g('h_lp'),ve:g('h_ve'),vl:g('h_vl'),dist:g('h_dist')},
     maintenance:g('maint'),
     equip, support, manpower,
-    cashflow:{lag:cfState.lag, prod:cfState.prod, basis:cfState.basis, flat:cfState.flat},
+    cashflow:{lag:cfState.lag, prod:cfState.prod, basis:cfState.basis, flat:cfState.flat, rate:cfState.rate},
     ts: Date.now()
   };
 }
@@ -6943,8 +6948,8 @@ function _applyScenario(d){
   if(Array.isArray(d.manpower)) manpower = d.manpower;
   cfState = (d.cashflow && typeof d.cashflow==='object')
     ? {lag:(d.cashflow.lag!=null?+d.cashflow.lag:1), prod:(d.cashflow.prod&&typeof d.cashflow.prod==='object')?d.cashflow.prod:{},
-       basis:(d.cashflow.basis==='coal'?'coal':'ob'), flat:(d.cashflow.flat!=null?d.cashflow.flat:null)}
-    : {lag:1, prod:{}, basis:'ob', flat:null};
+       basis:(d.cashflow.basis==='coal'?'coal':'ob'), flat:(d.cashflow.flat!=null?d.cashflow.flat:null), rate:(d.cashflow.rate!=null?d.cashflow.rate:null)}
+    : {lag:1, prod:{}, basis:'ob', flat:null, rate:null};
   /* Migrate: ensure Operator row has auto flag (ratio × total unit) and
      Plant-linked rows have autoPM tag. Existing project files may have been
      saved before these flags existed; without re-tagging, auto-sync di calc()
