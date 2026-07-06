@@ -3705,6 +3705,15 @@ function cfCompute(){
   const _finMo  = (ma.finRateYr||0)/12;
   let instMo = 0;
   if((ma.financedCapex||0)>0){ instMo = _finMo>0 ? (ma.financedCapex*_finMo/(1-Math.pow(1+_finMo,-tenorMo))) : (ma.financedCapex/tenorMo); }
+  /* Biaya TAHUNAN — item frekuensi <12×/th di Calculator (mis. MCU: mpMonths/supMonths=1) → tampil
+     sbg LONJAKAN 1× tiap 12 bln, dan dikeluarkan dari komponen bulanan agar tak dobel-hitung. */
+  const _mp = (typeof manpower!=='undefined'?manpower:[]);
+  const _sup = (typeof support!=='undefined'?support:[]);
+  const annualMP  = _mp.reduce((a,m)=> a + (((typeof mpInc!=='function')||mpInc(m)) && (+m.qty||0)>0 && (typeof mpMonths==='function'&&mpMonths(m)<12) ? mpAnnual(m) : 0), 0);
+  const annualSup = _sup.reduce((a,s)=> a + (((typeof supInc!=='function')||supInc(s)) && (+s.qty||0)>0 && (+s.cost||0)>0 && (typeof supMonths==='function'&&supMonths(s)<12) && !((typeof isCapexSupport==='function')&&isCapexSupport(s.name)) ? (+s.qty)*(+s.cost) : 0), 0);
+  const annualCost = annualMP + annualSup;
+  const salMonthly = Math.max(0, (ma.moSalary||0) - annualMP/12);   /* moSalary menyebar MCU/12 → keluarkan */
+  const supMonthly = Math.max(0, (ma.moSupport||0) - annualSup);    /* moSupport hitung MCU sbg bulanan → keluarkan */
   const prod = [];
   for(let t=1;t<=N;t++){ const ov = cfState.prod && cfState.prod[t]; prod[t] = (ov!=null && ov!=='') ? (+ov||0) : effFlat; }
   const rows=[]; let cash=0;
@@ -3714,9 +3723,10 @@ function cfCompute(){
     const src = t - lag;
     const revenue = (src>=1 && src<=N) ? (prod[src]||0)*rateIDR : 0;  /* = produksi × Rate Rekomendasi */
     const capex = (t===0) ? upfront : 0;
-    const comp = isOp ? {inst:(t<=tenorMo?instMo:0), sal:ma.moSalary||0, maint:ma.moMaint||0, sup:ma.moSupport||0, akom:ma.moAkom||0}
-                      : {inst:0,sal:0,maint:0,sup:0,akom:0};
-    const opex = comp.inst+comp.sal+comp.maint+comp.sup+comp.akom;
+    const annSpike = (isOp && t%12===0) ? annualCost : 0;            /* lonjakan tiap 12 bln (M12,M24,…) */
+    const comp = isOp ? {inst:(t<=tenorMo?instMo:0), sal:salMonthly, maint:ma.moMaint||0, sup:supMonthly, akom:ma.moAkom||0, ann:annSpike}
+                      : {inst:0,sal:0,maint:0,sup:0,akom:0,ann:0};
+    const opex = comp.inst+comp.sal+comp.maint+comp.sup+comp.akom+comp.ann;
     const expense = capex + opex;
     const margin = revenue - expense;
     cash += margin;
@@ -3727,7 +3737,7 @@ function cfCompute(){
   const totalRev = rows.reduce((a,r)=>a+r.revenue,0);
   const totalExp = rows.reduce((a,r)=>a+r.expense,0);
   const netMargin = totalRev-totalExp;
-  return {rows,N,lag,upfront,totalRev,totalExp,netMargin,peak:-peak,breakEven:be,marginPct:totalRev>0?netMargin/totalRev*100:0,cf,ma,basis,unit,effFlat,streamAnnual,rateUSD,rateIDR,usdRp,tenorY,tenorMo,instMo,mgn};
+  return {rows,N,lag,upfront,totalRev,totalExp,netMargin,peak:-peak,breakEven:be,marginPct:totalRev>0?netMargin/totalRev*100:0,cf,ma,basis,unit,effFlat,streamAnnual,rateUSD,rateIDR,usdRp,tenorY,tenorMo,instMo,mgn,annualCost};
 }
 function cfRender(){
   const host=$('cf_body'); if(!host) return;
@@ -3745,7 +3755,7 @@ function cfRender(){
   html+='<label class="text-xs" style="color:#a8a29e">Rate Rekomendasi ($/'+M.unit+')<br><input type="number" step="0.0001" min="0" value="'+M.rateUSD.toFixed(4)+'" onchange="cfSetRate(this.value)" class="num-in mt-1" style="width:130px" title="Rate rekomendasi dari TCO. Revenue = Produksi × Rate. Kosongkan → ikut nilai TCO."></label>';
   html+='<button class="btn btn-sec" onclick="cfResetProd()" style="padding:5px 10px;font-size:11px" title="Hapus semua edit per-sel → kembali flat">↺ Reset ke flat</button>';
   html+='</div>';
-  html+='<div class="text-xs" style="color:#a8a29e;margin-bottom:12px">Revenue = <b style="color:#fde68a">Produksi × Rate</b> · Rate Rekomendasi TCO (<b>'+(M.basis==='coal'?'Coal Getting':'OB')+'</b>) = <b style="color:#fde68a">$'+M.rateUSD.toFixed(4)+'/'+M.unit+'</b> (≈ Rp '+cfFmtB(M.rateIDR)+'/'+M.unit+') · kas masuk +'+M.lag+' bln · Cicilan alat <b>'+M.tenorY+' th</b> ('+cfFmtB(M.instMo)+'/bln, '+M.tenorMo+' bln) · Durasi <b>'+M.N+' bln</b> · Produksi '+cfFmtB(M.streamAnnual)+' '+M.unit+'/th. Sel Produksi bisa diedit satu-satu.</div>';
+  html+='<div class="text-xs" style="color:#a8a29e;margin-bottom:12px">Revenue = <b style="color:#fde68a">Produksi × Rate</b> · Rate Rekomendasi TCO (<b>'+(M.basis==='coal'?'Coal Getting':'OB')+'</b>) = <b style="color:#fde68a">$'+M.rateUSD.toFixed(4)+'/'+M.unit+'</b> (≈ Rp '+cfFmtB(M.rateIDR)+'/'+M.unit+') · kas masuk +'+M.lag+' bln · Cicilan alat <b>'+M.tenorY+' th</b> ('+cfFmtB(M.instMo)+'/bln, '+M.tenorMo+' bln) · Biaya tahunan '+cfFmtB(M.annualCost)+'/th (lonjakan tiap 12 bln) · Durasi <b>'+M.N+' bln</b> · Produksi '+cfFmtB(M.streamAnnual)+' '+M.unit+'/th. Sel Produksi bisa diedit satu-satu.</div>';
   /* ----- KPI ----- */
   html+='<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px">';
   html+=kpi('💰 Kebutuhan Modal Puncak','Rp '+cfFmtB(M.peak),'kas paling negatif','#f87171','Titik kas terdalam (kumulatif) — modal maksimum yang harus disiapkan');
@@ -3767,13 +3777,15 @@ function cfRender(){
   rows.forEach(r=>{ if(r.t>=1 && r.t<=M.N){ pr+='<td style="padding:2px 4px"><input type="number" value="'+Math.round(r.p)+'" onchange="cfSetProd('+r.t+',this.value)" style="width:74px;background:#0f0b08;color:#fef3c7;border:1px solid #3d342a;border-radius:4px;padding:2px 4px;font-size:10px;text-align:right"></td>'; } else { pr+='<td style="padding:3px 8px;text-align:right;color:#71717a">—</td>'; } });
   html+=pr+'</tr>';
   html+=line('Revenue', rows.map(r=>r.revenue?cfFmtB(r.revenue):'—'), '#84cc16', false, '= Produksi × Rate ($'+M.rateUSD.toFixed(4)+'/'+M.unit+' × Rp '+M.usdRp+'/$ = Rp '+cfFmtB(M.rateIDR)+'/'+M.unit+'), kas masuk +'+M.lag+' bln.');
-  html+=line('— Capex (M0)', rows.map(r=>r.capex?('('+cfFmtB(r.capex)+')'):'—'), '#38bdf8', false, 'Modal awal di M0 = DP Equipment + CAPEX Infra (dari Modal Awal / tab TCO).');
+  html+=line('— CAPEX Awal (M0)', rows.map(r=>r.capex?('('+cfFmtB(r.capex)+')'):'—'), '#38bdf8', false, 'Modal awal di M0 = DP Equipment + CAPEX Infra (dari Modal Awal / tab TCO). Satu kali di awal.');
   html+=line('— Cicilan Alat', rows.map(r=>r.comp.inst?cfFmtB(r.comp.inst):'—'), '#fdba74', false, '= cicilan/bln = CAPEX alat×(1−DP%) diamortisasi selama tenor '+M.tenorY+' th ('+M.tenorMo+' bln); setelah lunas → 0.');
-  html+=line('— Manpower', rows.map(r=>r.comp.sal?cfFmtB(r.comp.sal):'—'), '#22d3ee', false, '= Σ gaji manpower / bln (tab Calculator → Man Power).');
+  html+=line('— Manpower (bln)', rows.map(r=>r.comp.sal?cfFmtB(r.comp.sal):'—'), '#22d3ee', false, '= Σ gaji manpower bulanan (tab Calculator → Man Power); porsi item tahunan dikeluarkan ke baris Biaya Tahunan.');
   html+=line('— Maintenance', rows.map(r=>r.comp.maint?cfFmtB(r.comp.maint):'—'), '#fde68a', false, '= biaya maintenance fleet / bln (tab Maintenance Cost).');
-  html+=line('— Support', rows.map(r=>r.comp.sup?cfFmtB(r.comp.sup):'—'), '#a3e635', false, '= Σ Support Facilities OPEX / bln.');
+  html+=line('— Support (bln)', rows.map(r=>r.comp.sup?cfFmtB(r.comp.sup):'—'), '#a3e635', false, '= Σ Support Facilities OPEX bulanan; porsi item tahunan (MCU dll) dikeluarkan ke baris Biaya Tahunan.');
   html+=line('— Akomodasi', rows.map(r=>r.comp.akom?cfFmtB(r.comp.akom):'—'), '#94a3b8', false, '= headcount akomodasi × biaya akomodasi / bln.');
-  html+=line('Total Expense', rows.map(r=>cfFmtB(r.expense)), '#f87171', true, '= Capex (M0) + semua Opex bulanan.');
+  html+=line('— Biaya Tahunan', rows.map(r=>r.comp.ann?cfFmtB(r.comp.ann):'—'), '#f472b6', false, 'Item 1×/tahun dari Calculator (mis. MCU/medical): muncul sbg lonjakan tiap 12 bln = '+cfFmtB(M.annualCost)+'/th. "—" bila project tak punya item tahunan.');
+  html+=line('Subtotal Opex', rows.map(r=>r.opex?cfFmtB(r.opex):'—'), '#fbbf24', true, '= Cicilan + Manpower + Maintenance + Support + Akomodasi (+ lonjakan Biaya Tahunan di bln ke-12).');
+  html+=line('Total Expense', rows.map(r=>cfFmtB(r.expense)), '#f87171', true, '= CAPEX Awal (M0) + Subtotal Opex.');
   html+=line('Margin/bln', rows.map(r=>cfFmtB(r.margin)), '#e7e5e4', true, '= Revenue − Total Expense.');
   html+=line('Cash on Hand', rows.map(r=>cfFmtB(r.cash)), '#fbbf24', true, '= akumulasi Margin berjalan. Titik terdalam = Kebutuhan Modal Puncak.');
   html+='</tbody></table></div>';
