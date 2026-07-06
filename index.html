@@ -6335,10 +6335,25 @@ function closeProjectPanel(){ const p=$('project_panel'); if(p) p.style.display=
 function pickProject(name){ closeProjectPanel(); switchProject(name); }
 
 function _pfEsc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-function _pfJ(s){ return JSON.stringify(String(s)); }
-
+function _pfAttr(s){ return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+/* Klik panel via EVENT DELEGATION (data-act) — hindari bug quoting nama di inline handler. */
+let _panelDelegated=false;
+function _panelClick(e){
+  const el=e.target.closest('[data-act]'); if(!el) return;
+  const act=el.getAttribute('data-act'), arg=el.getAttribute('data-arg'), arg2=el.getAttribute('data-arg2');
+  if(act==='toggle') toggleFolderCollapse(arg);
+  else if(act==='renfld') renameFolder(arg);
+  else if(act==='delfld') deleteFolder(arg);
+  else if(act==='pick') pickProject(arg);
+  else if(act==='move') startMovePick(arg);
+  else if(act==='moveto') moveProjectToFolder(arg,arg2);
+  else if(act==='newfldmove') newFolder(arg);
+  else if(act==='newfld') newFolder();
+  else if(act==='organize') openFolderOrganizer();
+}
 function renderProjectPanel(){
   const panel=$('project_panel'); if(!panel) return;
+  if(!_panelDelegated){ panel.addEventListener('click',_panelClick); _panelDelegated=true; }
   const projs=readProjects();
   const names=Object.keys(projs).sort((a,b)=>a.localeCompare(b));
   const active=getActiveProject();
@@ -6352,33 +6367,32 @@ function renderProjectPanel(){
   folderList.forEach(f=>{
     const items=groups[f]||[];
     if(f===NO_FOLDER && items.length===0) return;
-    const open = collapse[f]!==true;
-    const canEdit = f!==NO_FOLDER;
+    const open=collapse[f]!==true, canEdit=f!==NO_FOLDER, fa=_pfAttr(f);
     html+='<div style="margin-bottom:2px"><div style="display:flex;align-items:center;gap:4px;padding:4px 6px;border-radius:6px;background:#241a12">';
-    html+='<span onclick="toggleFolderCollapse('+_pfJ(f)+')" style="cursor:pointer;flex:1;display:flex;align-items:center;gap:5px;font-weight:700;color:#fbbf24;font-size:12px">'
+    html+='<span data-act="toggle" data-arg="'+fa+'" style="cursor:pointer;flex:1;display:flex;align-items:center;gap:5px;font-weight:700;color:#fbbf24;font-size:12px">'
         +'<span style="width:10px;display:inline-block">'+(open?'▾':'▸')+'</span>'+(open?'📂':'📁')+' '+_pfEsc(f)+' <span style="color:#a8a29e;font-weight:400">('+items.length+')</span></span>';
     if(canEdit){
-      html+='<span onclick="renameFolder('+_pfJ(f)+')" title="Rename folder" style="cursor:pointer;font-size:11px">✏️</span>';
-      html+='<span onclick="deleteFolder('+_pfJ(f)+')" title="Hapus folder" style="cursor:pointer;font-size:11px">🗑</span>';
+      html+='<span data-act="renfld" data-arg="'+fa+'" title="Rename folder" style="cursor:pointer;font-size:11px">✏️</span>';
+      html+='<span data-act="delfld" data-arg="'+fa+'" title="Hapus folder" style="cursor:pointer;font-size:11px">🗑</span>';
     }
     html+='</div>';
     if(open){ items.forEach(n=>{
-      const act=n===active;
+      const act=n===active, na=_pfAttr(n);
       html+='<div style="display:flex;align-items:center;gap:4px;padding:3px 6px 3px 20px">';
-      html+='<span onclick="pickProject('+_pfJ(n)+')" style="cursor:pointer;flex:1;font-size:12px;color:'+(act?'#fef3c7':'#e7e5e4')+';font-weight:'+(act?'700':'400')+';white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title='+_pfJ(n)+'>'+(act?'● ':'○ ')+_pfEsc(n)+'</span>';
-      html+='<span onclick="startMovePick('+_pfJ(n)+')" title="Pindah ke folder lain" style="cursor:pointer;font-size:11px">📁→</span></div>';
+      html+='<span data-act="pick" data-arg="'+na+'" style="cursor:pointer;flex:1;font-size:12px;color:'+(act?'#fef3c7':'#e7e5e4')+';font-weight:'+(act?'700':'400')+';white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+na+'">'+(act?'● ':'○ ')+_pfEsc(n)+'</span>';
+      html+='<span data-act="move" data-arg="'+na+'" title="Pindah ke folder lain" style="cursor:pointer;font-size:11px">📁→</span></div>';
       if(_movePickFor===n){
         html+='<div style="margin:2px 6px 6px 20px;padding:5px;background:#0f0b08;border:1px solid #3d342a;border-radius:6px"><div style="font-size:10px;color:#a8a29e;margin-bottom:3px">Pindahkan ke:</div>';
-        pickFolders.forEach(ff=>{ if(ff===getProjectFolder(n)) return; html+='<div onclick="moveProjectToFolder('+_pfJ(n)+','+_pfJ(ff)+')" style="cursor:pointer;font-size:11px;padding:2px 4px;color:#fbbf24">📁 '+_pfEsc(ff)+'</div>'; });
-        if(getProjectFolder(n)!==NO_FOLDER) html+='<div onclick="moveProjectToFolder('+_pfJ(n)+','+_pfJ(NO_FOLDER)+')" style="cursor:pointer;font-size:11px;padding:2px 4px;color:#e7e5e4">✖ Keluarkan ke '+NO_FOLDER+'</div>';
-        html+='<div onclick="newFolder('+_pfJ(n)+')" style="cursor:pointer;font-size:11px;padding:2px 4px;color:#84cc16">＋ Folder baru…</div></div>';
+        pickFolders.forEach(ff=>{ if(ff===getProjectFolder(n)) return; html+='<div data-act="moveto" data-arg="'+na+'" data-arg2="'+_pfAttr(ff)+'" style="cursor:pointer;font-size:11px;padding:2px 4px;color:#fbbf24">📁 '+_pfEsc(ff)+'</div>'; });
+        if(getProjectFolder(n)!==NO_FOLDER) html+='<div data-act="moveto" data-arg="'+na+'" data-arg2="'+_pfAttr(NO_FOLDER)+'" style="cursor:pointer;font-size:11px;padding:2px 4px;color:#e7e5e4">✖ Keluarkan ke '+NO_FOLDER+'</div>';
+        html+='<div data-act="newfldmove" data-arg="'+na+'" style="cursor:pointer;font-size:11px;padding:2px 4px;color:#84cc16">＋ Folder baru…</div></div>';
       }
     }); }
     html+='</div>';
   });
   html+='<div style="display:flex;gap:6px;align-items:center;margin-top:4px;border-top:1px solid #3d342a;padding-top:5px">'
-      +'<div onclick="newFolder()" style="cursor:pointer;flex:1;padding:3px 6px;color:#84cc16;font-size:12px;font-weight:700">＋ Folder baru</div>'
-      +'<div onclick="openFolderOrganizer()" title="Pindahkan banyak project sekaligus" style="cursor:pointer;padding:3px 8px;color:#fbbf24;font-size:12px;font-weight:700;background:#241a12;border-radius:6px">⚙ Atur massal</div>'
+      +'<div data-act="newfld" style="cursor:pointer;flex:1;padding:3px 6px;color:#84cc16;font-size:12px;font-weight:700">＋ Folder baru</div>'
+      +'<div data-act="organize" title="Pindahkan banyak project sekaligus" style="cursor:pointer;padding:3px 8px;color:#fbbf24;font-size:12px;font-weight:700;background:#241a12;border-radius:6px">⚙ Atur massal</div>'
       +'</div>';
   panel.innerHTML=html;
 }
@@ -6415,6 +6429,8 @@ function openFolderOrganizer(){
       +'</div>';
     document.body.appendChild(dlg);
     dlg.addEventListener('click', function(e){ if(e.target===dlg) closeFolderOrganizer(); });
+    /* delegasi: centang checkbox baris (hindari bug quoting nama di inline handler) */
+    dlg.querySelector('#fog_list').addEventListener('change', function(e){ const cb=e.target; if(cb && cb.matches && cb.matches('input[type=checkbox][data-fog]')) fogToggle(cb.getAttribute('data-fog'), cb.checked); });
   }
   fogPopulateTarget();
   dlg.style.display='flex';
@@ -6444,7 +6460,7 @@ function fogRender(){
   list.innerHTML = names.map(n=>{
     const f=getProjectFolder(n); const ck=_fogChecked.has(n);
     return '<label style="display:flex;align-items:center;gap:8px;padding:5px 6px;border-bottom:1px solid #241a12;cursor:pointer;font-size:12px">'
-      +'<input type="checkbox" '+(ck?'checked':'')+' onchange="fogToggle('+JSON.stringify(n)+',this.checked)">'
+      +'<input type="checkbox" '+(ck?'checked':'')+' data-fog="'+_pfAttr(n)+'">'
       +'<span style="flex:1;color:#e7e5e4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+_pfEsc(n)+'</span>'
       +'<span style="color:#a8a29e;font-size:10px">'+(f===NO_FOLDER?'—':('📂 '+_pfEsc(f)))+'</span></label>';
   }).join('') || '<div style="padding:20px;text-align:center;color:#a8a29e;font-style:italic">— tak ada project cocok —</div>';
