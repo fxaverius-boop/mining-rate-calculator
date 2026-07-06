@@ -6376,7 +6376,10 @@ function renderProjectPanel(){
     }); }
     html+='</div>';
   });
-  html+='<div onclick="newFolder()" style="cursor:pointer;margin-top:4px;padding:6px;border-top:1px solid #3d342a;color:#84cc16;font-size:12px;font-weight:700">＋ Folder baru</div>';
+  html+='<div style="display:flex;gap:6px;align-items:center;margin-top:4px;border-top:1px solid #3d342a;padding-top:5px">'
+      +'<div onclick="newFolder()" style="cursor:pointer;flex:1;padding:3px 6px;color:#84cc16;font-size:12px;font-weight:700">＋ Folder baru</div>'
+      +'<div onclick="openFolderOrganizer()" title="Pindahkan banyak project sekaligus" style="cursor:pointer;padding:3px 8px;color:#fbbf24;font-size:12px;font-weight:700;background:#241a12;border-radius:6px">⚙ Atur massal</div>'
+      +'</div>';
   panel.innerHTML=html;
 }
 
@@ -6387,6 +6390,80 @@ function refreshProjectDropdown(){
 }
 /* Klik di luar panel → tutup (klik di dalam sudah di-stopPropagation di elemen panel). */
 document.addEventListener('click', function(e){ const p=$('project_panel'); if(p && p.style.display==='block'){ const b=$('project_btn'); if(b && b.contains(e.target)) return; p.style.display='none'; _movePickFor=null; } });
+
+/* ===== ATUR MASSAL: pindahkan banyak project ke satu folder sekaligus ===== */
+let _fogChecked = new Set();
+function openFolderOrganizer(){
+  closeProjectPanel();
+  _fogChecked = new Set();
+  let dlg=document.getElementById('folder_org');
+  if(!dlg){
+    dlg=document.createElement('div');
+    dlg.id='folder_org';
+    dlg.style.cssText='position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.62);display:none;align-items:center;justify-content:center';
+    dlg.innerHTML='<div style="background:#1a1410;border:1px solid #78350f;border-radius:12px;width:min(580px,94vw);max-height:88vh;display:flex;flex-direction:column;box-shadow:0 22px 64px rgba(0,0,0,.6)">'
+      +'<div style="padding:12px 16px;border-bottom:1px solid #3d342a;display:flex;align-items:center;gap:8px"><span style="font-weight:800;color:#fbbf24;font-size:15px;flex:1">⚙ Atur Project ke Folder</span><span onclick="closeFolderOrganizer()" style="cursor:pointer;color:#a8a29e;font-size:18px;font-weight:700">✕</span></div>'
+      +'<div style="padding:10px 16px;border-bottom:1px solid #3d342a;display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+        +'<span style="font-size:12px;color:#e7e5e4">Pindahkan terpilih ke:</span>'
+        +'<select id="forg_target" class="num-in" style="padding:4px 8px;font-weight:700;min-width:150px"></select>'
+        +'<button class="btn-sec" onclick="fogNewFolder()" style="padding:4px 8px;font-size:11px">＋ Folder</button>'
+        +'<input id="fog_search" placeholder="🔎 cari project…" oninput="fogRender()" style="flex:1;min-width:120px;background:#0f0b08;color:#fef3c7;border:1px solid #3d342a;border-radius:6px;padding:5px 8px;font-size:12px">'
+      +'</div>'
+      +'<div style="padding:7px 16px;display:flex;gap:10px;align-items:center;font-size:11px;color:#a8a29e"><label style="cursor:pointer;display:flex;gap:5px;align-items:center"><input type="checkbox" id="fog_all" onchange="fogToggleAll(this.checked)"> Centang semua (terlihat)</label><span id="fog_count" style="margin-left:auto;font-weight:700;color:#fbbf24"></span></div>'
+      +'<div id="fog_list" style="overflow:auto;padding:0 10px 10px;flex:1"></div>'
+      +'<div style="padding:12px 16px;border-top:1px solid #3d342a;display:flex;gap:8px;justify-content:flex-end"><button class="btn-sec" onclick="closeFolderOrganizer()" style="padding:6px 14px">Batal</button><button class="btn btn-add" onclick="applyFolderOrganize()" id="fog_apply" style="padding:6px 14px">Pindahkan</button></div>'
+      +'</div>';
+    document.body.appendChild(dlg);
+    dlg.addEventListener('click', function(e){ if(e.target===dlg) closeFolderOrganizer(); });
+  }
+  fogPopulateTarget();
+  dlg.style.display='flex';
+  fogRender();
+}
+function closeFolderOrganizer(){ const d=document.getElementById('folder_org'); if(d) d.style.display='none'; }
+function fogPopulateTarget(sel){
+  const t=document.getElementById('forg_target'); if(!t) return;
+  const cur=sel||t.value;
+  const opts=readFolders().slice().sort((a,b)=>a.localeCompare(b)).concat([NO_FOLDER]);
+  t.innerHTML=opts.map(f=>'<option value="'+f.replace(/"/g,'&quot;')+'">'+f+'</option>').join('');
+  if(cur && opts.indexOf(cur)>=0) t.value=cur;
+}
+function fogNewFolder(){
+  const name=(prompt('Nama folder baru:')||'').trim();
+  if(!name||name===NO_FOLDER) return;
+  const fs=readFolders(); if(fs.indexOf(name)<0){ fs.push(name); writeFolders(fs); }
+  fogPopulateTarget(name);
+}
+function fogVisibleNames(){
+  const q=(document.getElementById('fog_search')?.value||'').toLowerCase();
+  return Object.keys(readProjects()).sort((a,b)=>a.localeCompare(b)).filter(n=>!q||n.toLowerCase().includes(q));
+}
+function fogRender(){
+  const list=document.getElementById('fog_list'); if(!list) return;
+  const names=fogVisibleNames();
+  list.innerHTML = names.map(n=>{
+    const f=getProjectFolder(n); const ck=_fogChecked.has(n);
+    return '<label style="display:flex;align-items:center;gap:8px;padding:5px 6px;border-bottom:1px solid #241a12;cursor:pointer;font-size:12px">'
+      +'<input type="checkbox" '+(ck?'checked':'')+' onchange="fogToggle('+JSON.stringify(n)+',this.checked)">'
+      +'<span style="flex:1;color:#e7e5e4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+_pfEsc(n)+'</span>'
+      +'<span style="color:#a8a29e;font-size:10px">'+(f===NO_FOLDER?'—':('📂 '+_pfEsc(f)))+'</span></label>';
+  }).join('') || '<div style="padding:20px;text-align:center;color:#a8a29e;font-style:italic">— tak ada project cocok —</div>';
+  const allCk=document.getElementById('fog_all'); if(allCk) allCk.checked = names.length>0 && names.every(n=>_fogChecked.has(n));
+  const cnt=document.getElementById('fog_count'); if(cnt) cnt.textContent=_fogChecked.size+' terpilih';
+}
+function fogToggle(name,ck){ if(ck) _fogChecked.add(name); else _fogChecked.delete(name); const c=document.getElementById('fog_count'); if(c)c.textContent=_fogChecked.size+' terpilih'; const allCk=document.getElementById('fog_all'); if(allCk){ const names=fogVisibleNames(); allCk.checked=names.length>0&&names.every(n=>_fogChecked.has(n)); } }
+function fogToggleAll(ck){ fogVisibleNames().forEach(n=>{ if(ck)_fogChecked.add(n); else _fogChecked.delete(n); }); fogRender(); }
+function applyFolderOrganize(){
+  const t=document.getElementById('forg_target'); const target=t?t.value:NO_FOLDER;
+  if(_fogChecked.size===0){ alert('Belum ada project yang dicentang.'); return; }
+  const m=readProjFolders();
+  _fogChecked.forEach(n=>{ if(!target||target===NO_FOLDER) delete m[n]; else m[n]=target; });
+  writeProjFolders(m);
+  const moved=_fogChecked.size;
+  closeFolderOrganizer();
+  refreshProjectDropdown();
+  const ind=$('autosave_ind'); if(ind){ ind.style.color='#84cc16'; ind.textContent='● '+moved+' project → '+target; }
+}
 
 /* Switch to an existing project: save current scenario to the CURRENT active
    project key, then load the selected project's scenario (or reset defaults
