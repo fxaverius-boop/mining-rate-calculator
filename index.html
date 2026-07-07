@@ -327,6 +327,7 @@
       <button class="tab-btn" data-tab="org">🏢 Struktur Organisasi</button>
       <button class="tab-btn" data-tab="maint">💰 Maintenance Cost</button>
       <button class="tab-btn" data-tab="cashflow">💵 Cashflow</button>
+      <button class="tab-btn" data-tab="finx">💹 Analisis NPV/IRR</button>
       <button class="tab-btn" data-tab="ev-sim">🔋 EV Hauling Simulator</button>
       <div class="sidebar-section">Database</div>
       <button class="tab-btn" data-tab="db-sup">🏗️ Support Facilities DB</button>
@@ -341,6 +342,13 @@
     <div class="h-section">💵 Project Cashflow (Bulanan)</div>
     <div class="text-xs mb-3" style="color:#a8a29e">Proyeksi kas bulanan M0…Mn — Revenue (produksi × Rate Rekomendasi, kas masuk sesuai termin) dikurangi Capex awal + Opex bulanan (ditarik dari data project). Menampilkan kebutuhan modal puncak & titik balik modal.</div>
     <div id="cf_body"></div>
+  </div>
+
+  <!-- ============ TAB: ANALISIS NPV/IRR (per stream) ============ -->
+  <div id="tab-finx" class="tab-panel">
+    <div class="h-section">💹 Analisis Finansial — NPV · IRR · Pajak (per Stream)</div>
+    <div class="text-xs mb-3" style="color:#a8a29e">Cashflow per stream <b>terpisah</b> (OB & Coal Getting), lengkap dengan <b>BPJS</b>, <b>PPh Badan</b> (atas laba operasi tahunan), lalu <b>NPV</b>, <b>IRR</b>, dan <b>payback terdiskonto</b>. Termin & tenor cicilan mengikuti tab Cashflow.</div>
+    <div id="finx_body"></div>
   </div>
 
   <!-- ============ TAB: CALCULATOR ============ -->
@@ -3653,6 +3661,7 @@ document.querySelectorAll('.tab-btn[data-tab]').forEach(b=>{
     if(b.dataset.tab==='org')   { renderOrgChart(); }
     if(b.dataset.tab==='prodcalc'){ prodCalcRender(); }
     if(b.dataset.tab==='cashflow'){ cfRender(); }
+    if(b.dataset.tab==='finx'){ cfxRender(); }
     /* Lazy-load the EV simulator iframe on first visit — avoids loading the
        React/Babel runtime (~200KB) for users who never open this tab. */
     if(b.dataset.tab==='ev-sim'){
@@ -3811,6 +3820,136 @@ function cfSetFlat(v){ cfState.flat=(v===''||v==null)?null:(+v||0); cfState.prod
 function cfSetRate(v){ cfState.rate=(v===''||v==null)?null:(+v||0); if(typeof markDirty==='function') markDirty(); cfRender(); }
 function cfSetTenor(v){ cfState.tenorYears=(v===''||v==null)?null:Math.max(1,+v||1); if(typeof markDirty==='function') markDirty(); cfRender(); }
 function cfResetProd(){ cfState.prod={}; if(typeof markDirty==='function') markDirty(); cfRender(); }
+
+/* ================================================================
+   ANALISIS FINANSIAL (tab) — NPV · IRR · Pajak, per stream (OB & Coal Getting).
+   Reuse cost aggregat (computeModalAwal) + alokasi per stream (computeStreamCosts).
+   Tambah BPJS (% gaji) + PPh Badan (% laba operasi tahunan). Termin/tenor ikut cfState.
+   ================================================================ */
+let cfxState = { disc:10, tax:22, bpjs:11 };
+let _cfxCharts = {};
+function cfxNPV(cash, rM){ let n=0; for(let t=0;t<cash.length;t++){ n += cash[t]/Math.pow(1+rM,t); } return n; }
+function cfxIRR(cash){ const f=r=>cfxNPV(cash,r); let lo=-0.9, hi=1.0, flo=f(lo), fhi=f(hi);
+  if(!isFinite(flo)||!isFinite(fhi)||flo*fhi>0) return null;
+  for(let i=0;i<200;i++){ const mid=(lo+hi)/2, fm=f(mid); if(Math.abs(fm)<1) return mid; if(flo*fm<0){hi=mid;fhi=fm;}else{lo=mid;flo=fm;} }
+  return (lo+hi)/2; }
+function cfxComputeStream(sk){
+  const cf=window._cfCache||{}; const usd=+cf.usd||16500;
+  const ma=(typeof computeModalAwal==='function')?computeModalAwal():{};
+  let sc=null; try{ sc=(typeof computeStreamCosts==='function')?computeStreamCosts():null; }catch(e){}
+  const years=+($('years')?.value)||3, N=Math.max(1,Math.round(years*12));
+  const lag=Math.max(0,(cfState.lag|0)), totalMonths=N+lag;
+  const mgn=(window.streamRateMargin||+($('margin')?.value)||1.2);
+  const rM=((+cfxState.disc||0)/100)/12, taxP=(+cfxState.tax||0)/100, bpjsP=(+cfxState.bpjs||0)/100;
+  const SK=['ob','coal_get','coal_haul','rental','hrm'];
+  const tbs=(sc&&sc.totalByStream)||{}; const totAll=SK.reduce((a,k)=>a+(+tbs[k]||0),0);
+  const share=(totAll>0)?(+tbs[sk]||0)/totAll:0;
+  const cap=(sc&&sc.capexByStream)||{}; const capAll=SK.reduce((a,k)=>a+(+cap[k]||0),0);
+  const capShare=(capAll>0)?(+cap[sk]||0)/capAll:share;
+  const rateUSD=(sc&&sc.rateUSD)?(+sc.rateUSD[sk]||0)*mgn:0, rateIDR=rateUSD*usd;
+  const annualProd=sk==='coal_get'?(+($('prod_coal_ton')?.value)||0):(+($('prod_ob_bcm')?.value)||0);
+  const unit=sk==='coal_get'?'Ton':'BCM'; const prodMo=annualProd/12;
+  const tenorY=(cfState.tenorYears!=null&&cfState.tenorYears!=='')?(+cfState.tenorYears||0):(((ma.loanTermMonths||60))/12);
+  const tenorMo=Math.max(1,Math.round(tenorY*12)), finMo=(ma.finRateYr||0)/12;
+  const financed=(ma.financedCapex||0)*capShare;
+  const instMo=financed>0?(finMo>0?financed*finMo/(1-Math.pow(1+finMo,-tenorMo)):financed/tenorMo):0;
+  const upfront=(ma.dpEquip||0)*capShare + (ma.capexInfra||0)*share;
+  /* biaya tahunan (MCU dll) aggregat × share, sama seperti cashflow */
+  const _mp=(typeof manpower!=='undefined'?manpower:[]), _sup=(typeof support!=='undefined'?support:[]);
+  const annMPagg=_mp.reduce((a,m)=>a+(((typeof mpInc!=='function')||mpInc(m))&&(+m.qty||0)>0&&(typeof mpMonths==='function'&&mpMonths(m)<12)?mpAnnual(m):0),0);
+  const annSupAgg=_sup.reduce((a,s)=>a+(((typeof supInc!=='function')||supInc(s))&&(+s.qty||0)>0&&(+s.cost||0)>0&&(typeof supMonths==='function'&&supMonths(s)<12)&&!((typeof isCapexSupport==='function')&&isCapexSupport(s.name))?(+s.qty)*(+s.cost):0),0);
+  const annualCost=(annMPagg+annSupAgg)*share;
+  const salMo=Math.max(0,((ma.moSalary||0)-annMPagg/12)*share);
+  const maintMo=(ma.moMaint||0)*share, supMo=Math.max(0,((ma.moSupport||0)-annSupAgg)*share), akomMo=(ma.moAkom||0)*share;
+  const bpjsMo=((ma.moSalary||0)*share)*bpjsP;
+  /* Depresiasi utk basis pajak (bukan arus kas) — CAPEX alat stream ÷ useful life. */
+  const usefulY=+($('rental_life')?.value)||5;
+  const deprAnnual=(+(cap[sk]||0))/Math.max(1,usefulY);
+  const rows=[]; let cash=0, yrOp=0, yrMonths=0; const cashArr=[];
+  for(let t=0;t<=totalMonths;t++){
+    const isOp=(t>=1&&t<=N), src=t-lag;
+    const revenue=(src>=1&&src<=N)?prodMo*rateIDR:0;
+    const capex=(t===0)?upfront:0;
+    const inst=(isOp&&t<=tenorMo)?instMo:0;
+    const sal=isOp?salMo:0, maint=isOp?maintMo:0, sup=isOp?supMo:0, akom=isOp?akomMo:0, bpjs=isOp?bpjsMo:0;
+    const ann=(isOp&&t%12===0)?annualCost:0;
+    yrOp += revenue-(sal+maint+sup+akom+bpjs+ann);   /* laba operasi (tanpa cicilan & capex) */
+    if(isOp) yrMonths++;
+    let tax=0;
+    if(isOp && (t%12===0 || t===N)){ const taxBase=yrOp - deprAnnual*(yrMonths/12); tax=taxP*Math.max(0,taxBase); yrOp=0; yrMonths=0; }
+    const opex=inst+sal+maint+sup+akom+bpjs+ann+tax;
+    const expense=capex+opex, margin=revenue-expense;
+    cash+=margin; cashArr.push(margin);
+    rows.push({t,revenue,capex,inst,opexBase:sal+maint+sup+akom,bpjs,ann,tax,opex,expense,margin,cash});
+  }
+  const npv=cfxNPV(cashArr,rM); const irrM=cfxIRR(cashArr); const irrA=(irrM!=null&&isFinite(irrM))?(Math.pow(1+irrM,12)-1):null;
+  let dcum=0,dpb=null; for(let t=0;t<cashArr.length;t++){ dcum+=cashArr[t]/Math.pow(1+rM,t); if(dpb===null&&t>0&&dcum>=0)dpb=t; }
+  const totalRev=rows.reduce((a,r)=>a+r.revenue,0), totalTax=rows.reduce((a,r)=>a+r.tax,0), totalExp=rows.reduce((a,r)=>a+r.expense,0);
+  return {sk,rows,npv,irrA,payback:dpb,netProfit:cash,totalRev,totalTax,totalExp,unit,rateUSD,rateIDR,share,annualProd,prodMo,N,lag,tenorY,tenorMo,upfront,hasStream:annualProd>0&&share>0};
+}
+function cfxRender(){
+  const host=$('finx_body'); if(!host) return;
+  if(typeof calc==='function'){ try{ calc(); }catch(e){} }
+  let html='';
+  html+='<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;padding:10px 12px;background:#14110e;border:1px solid #3d342a;border-radius:10px">';
+  html+='<label class="text-xs" style="color:#a8a29e">Diskonto NPV (%/th)<br><input type="number" step="0.5" min="0" value="'+cfxState.disc+'" onchange="cfxSet(\'disc\',this.value)" class="num-in mt-1" style="width:110px" title="Tingkat diskonto untuk NPV & IRR"></label>';
+  html+='<label class="text-xs" style="color:#a8a29e">PPh Badan (%)<br><input type="number" step="1" min="0" value="'+cfxState.tax+'" onchange="cfxSet(\'tax\',this.value)" class="num-in mt-1" style="width:100px" title="Pajak atas laba operasi tahunan positif (dikenakan tiap akhir tahun)"></label>';
+  html+='<label class="text-xs" style="color:#a8a29e">BPJS (% gaji)<br><input type="number" step="0.5" min="0" value="'+cfxState.bpjs+'" onchange="cfxSet(\'bpjs\',this.value)" class="num-in mt-1" style="width:100px" title="Kontribusi BPJS = % dari gaji manpower, per bulan"></label>';
+  html+='<div class="text-xs" style="color:#a8a29e;max-width:420px">NPV = Σ arus kas bersih ÷ (1+i)ᵗ · IRR = tingkat saat NPV=0 · Pajak atas laba operasi tahunan (sebelum cicilan & capex). Termin '+cfState.lag+' bln, tenor '+(cfState.tenorYears||'auto')+' th (dari tab Cashflow).</div>';
+  html+='</div>';
+  const streams=[{sk:'ob',icon:'⛏️',name:'OB (Overburden)'},{sk:'coal_get',icon:'🪨',name:'Coal Getting'}];
+  streams.forEach(st=>{
+    const M=cfxComputeStream(st.sk); const rows=M.rows;
+    html+='<div style="margin-bottom:22px">';
+    html+='<div class="h-section" style="font-size:13px;margin-bottom:8px">'+st.icon+' '+st.name+' <span style="color:#a8a29e;font-weight:400;font-size:11px">· Rate $'+M.rateUSD.toFixed(4)+'/'+M.unit+' · Produksi '+cfFmtB(M.annualProd)+' '+M.unit+'/th · alokasi biaya '+(M.share*100).toFixed(1)+'%</span></div>';
+    if(!M.hasStream){ html+='<div class="text-xs" style="color:#78716c;font-style:italic;padding:8px 0">Stream ini tidak ada produksi/alokasi di project — tidak ada cashflow.</div></div>'; return; }
+    const irrTxt=(M.irrA!=null)?(M.irrA*100).toFixed(1)+'%/th':'—';
+    const irrCol=(M.irrA!=null&&M.irrA*100>=(+cfxState.disc||0))?'#84cc16':'#f87171';
+    const npvCol=M.npv>=0?'#84cc16':'#f87171';
+    const kpi=(label,val,sub,col,tip)=>'<div class="kpi card p-4" style="flex:1;min-width:150px" title="'+tip+'"><div class="kpi-label">'+label+'</div><div class="kpi-val" style="color:'+col+';-webkit-text-fill-color:'+col+';font-size:19px">'+val+'</div><div class="kpi-sub">'+sub+'</div></div>';
+    html+='<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">';
+    html+=kpi('💎 NPV','Rp '+cfFmtB(M.npv),'diskonto '+cfxState.disc+'%/th',npvCol,'Net Present Value arus kas bersih. >0 = layak.');
+    html+=kpi('📈 IRR',irrTxt,'vs diskonto '+cfxState.disc+'%',irrCol,'Internal Rate of Return (disetahunkan). ≥ diskonto = layak.');
+    html+=kpi('⏱️ Payback', M.payback!=null?('M'+M.payback):'—','terdiskonto','#38bdf8','Bulan kas terdiskonto kumulatif ≥ 0.');
+    html+=kpi('💰 Laba Bersih','Rp '+cfFmtB(M.netProfit),'setelah pajak','#fde68a','Kas akhir = total arus kas bersih setelah pajak & cicilan.');
+    html+=kpi('🧾 Total Pajak','Rp '+cfFmtB(M.totalTax),'PPh '+cfxState.tax+'%','#f472b6','Total PPh Badan selama project.');
+    html+='</div>';
+    html+='<div style="background:#14110e;border:1px solid #3d342a;border-radius:10px;padding:10px;margin-bottom:10px"><div style="height:180px;position:relative"><canvas id="cfx_chart_'+st.sk+'"></canvas></div></div>';
+    /* tabel ringkas per stream */
+    html+='<div style="overflow-x:auto;border:1px solid #3d342a;border-radius:10px"><table class="mono" style="font-size:10px;white-space:nowrap;border-collapse:collapse;min-width:100%">';
+    const thL=(text,tip,color,bold)=>'<th style="position:sticky;left:0;background:#1a1410;padding:4px 8px;text-align:left;z-index:2;border-right:1px solid #3d342a"'+(tip?(' title="'+String(tip).replace(/"/g,'&quot;')+'"'):'')+'><span style="color:'+(color||'#e7e5e4')+';font-weight:'+(bold?'700':'600')+';cursor:'+(tip?'help':'default')+'">'+text+(tip?' <span style="color:#78716c;font-size:9px">ⓘ</span>':'')+'</span></th>';
+    html+='<thead><tr style="background:#241a12;color:#fbbf24">'+thL('Bulan','','#fbbf24',true);
+    rows.forEach(r=>{ html+='<td style="padding:4px 8px;text-align:right;font-weight:700">M'+r.t+'</td>'; }); html+='</tr></thead><tbody>';
+    const line=(label,vals,color,bold,tip)=>{ let s='<tr>'+thL(label,tip,color,bold); vals.forEach(v=>{ s+='<td style="padding:3px 8px;text-align:right;color:'+(color||'#d4d4d8')+';font-weight:'+(bold?'700':'400')+'">'+v+'</td>'; }); return s+'</tr>'; };
+    html+=line('Revenue', rows.map(r=>r.revenue?cfFmtB(r.revenue):'—'), '#84cc16', false, '= Produksi × Rate '+st.name+'.');
+    html+=line('— CAPEX Awal (M0)', rows.map(r=>r.capex?('('+cfFmtB(r.capex)+')'):'—'), '#38bdf8', false, 'DP alat + infra (porsi stream).');
+    html+=line('— Cicilan Alat', rows.map(r=>r.inst?cfFmtB(r.inst):'—'), '#fdba74', false, 'Cicilan alat (porsi stream), tenor '+M.tenorY+' th.');
+    html+=line('— Opex (MP/Maint/Support/Akom)', rows.map(r=>r.opexBase?cfFmtB(r.opexBase):'—'), '#22d3ee', false, 'Gaji + maintenance + support + akomodasi (porsi stream).');
+    html+=line('— BPJS', rows.map(r=>r.bpjs?cfFmtB(r.bpjs):'—'), '#a3e635', false, '= '+cfxState.bpjs+'% × gaji manpower (porsi stream).');
+    html+=line('— Biaya Tahunan', rows.map(r=>r.ann?cfFmtB(r.ann):'—'), '#f9a8d4', false, 'Item 1×/tahun (MCU dll), lonjakan tiap 12 bln.');
+    html+=line('— Pajak (PPh)', rows.map(r=>r.tax?cfFmtB(r.tax):'—'), '#f472b6', false, '= '+cfxState.tax+'% × laba operasi tahunan (akhir tahun).');
+    html+=line('Total Expense', rows.map(r=>cfFmtB(r.expense)), '#f87171', true, '= CAPEX + Cicilan + Opex + BPJS + Tahunan + Pajak.');
+    html+=line('Margin/bln', rows.map(r=>cfFmtB(r.margin)), '#e7e5e4', true, '= Revenue − Total Expense.');
+    html+=line('Cash on Hand', rows.map(r=>cfFmtB(r.cash)), '#fbbf24', true, '= akumulasi Margin.');
+    html+='</tbody></table></div></div>';
+  });
+  host.innerHTML=html;
+  /* charts */
+  try{
+    Object.keys(_cfxCharts).forEach(k=>{ try{_cfxCharts[k].destroy();}catch(e){} }); _cfxCharts={};
+    streams.forEach(st=>{
+      const ctx=$('cfx_chart_'+st.sk); if(!ctx||typeof Chart==='undefined') return;
+      const M=cfxComputeStream(st.sk); if(!M.hasStream) return;
+      _cfxCharts[st.sk]=new Chart(ctx,{ data:{ labels:M.rows.map(r=>'M'+r.t), datasets:[
+        {type:'line',label:'Cash on Hand',data:M.rows.map(r=>Math.round(r.cash)),borderColor:'#fbbf24',backgroundColor:'rgba(251,191,36,.12)',fill:true,tension:.25,pointRadius:0,borderWidth:2}
+      ]}, options:{responsive:true,maintainAspectRatio:false,animation:false,
+        plugins:{datalabels:{display:false},legend:{display:false},tooltip:{callbacks:{label:c=>'Cash: Rp '+Math.round(c.parsed.y).toLocaleString('id-ID')}}},
+        scales:{x:{ticks:{color:'#8ea0c4',font:{size:8},maxRotation:0,autoSkip:true,maxTicksLimit:20},grid:{display:false}},
+                y:{ticks:{color:'#8ea0c4',font:{size:9},callback:v=>cfFmtB(v)},grid:{color:'rgba(39,49,84,.4)'}}} } });
+    });
+  }catch(e){ console.warn('cfx chart',e); }
+}
+function cfxSet(k,v){ cfxState[k]=(v===''||v==null)?0:(+v||0); if(typeof markDirty==='function') markDirty(); cfxRender(); }
 
 /* ================================================================
    EV HAULING SIMULATOR — Version selector
@@ -6765,6 +6904,7 @@ function _resetCalculatorToDefaults(){
   support = defaultSupport();
   manpower = defaultMP();
   cfState = {lag:1, prod:{}, basis:'ob', flat:null, rate:null, tenorYears:null};
+  cfxState = {disc:10, tax:22, bpjs:11};
   [['years','3'],['usd','16500'],['qnty','1'],['pa','0.85'],['ua','0.55'],['hrs','8760'],['adj','1.3'],['margin','1.2'],
    ['l_eff','0.9'],['l_prep','60'],
    ['h_eff','0.9'],['h_dt','60'],['h_dp','60'],['h_lp','60'],['h_dist','1'],['maint','0'],['maint_factor','100'],['mp_ratio','2.7'],['akom_cost','2000000'],
@@ -6799,7 +6939,7 @@ function snapshotScenario(){
     hauler:{merk:g('h_merk'),model:g('h_model'),vessel:g('h_vessel'),eff:g('h_eff'),dt:g('h_dt'),dp:g('h_dp'),lp:g('h_lp'),ve:g('h_ve'),vl:g('h_vl'),dist:g('h_dist')},
     maintenance:g('maint'),
     equip, support, manpower,
-    cashflow:{lag:cfState.lag, prod:cfState.prod, basis:cfState.basis, flat:cfState.flat, rate:cfState.rate, tenorYears:cfState.tenorYears},
+    cashflow:{lag:cfState.lag, prod:cfState.prod, basis:cfState.basis, flat:cfState.flat, rate:cfState.rate, tenorYears:cfState.tenorYears, finx:{disc:cfxState.disc, tax:cfxState.tax, bpjs:cfxState.bpjs}},
     ts: Date.now()
   };
 }
@@ -6974,6 +7114,7 @@ function _applyScenario(d){
     ? {lag:(d.cashflow.lag!=null?+d.cashflow.lag:1), prod:(d.cashflow.prod&&typeof d.cashflow.prod==='object')?d.cashflow.prod:{},
        basis:(d.cashflow.basis==='coal'?'coal':'ob'), flat:(d.cashflow.flat!=null?d.cashflow.flat:null), rate:(d.cashflow.rate!=null?d.cashflow.rate:null), tenorYears:(d.cashflow.tenorYears!=null?d.cashflow.tenorYears:null)}
     : {lag:1, prod:{}, basis:'ob', flat:null, rate:null, tenorYears:null};
+  { const fx=(d.cashflow&&d.cashflow.finx)||{}; cfxState={disc:(fx.disc!=null?+fx.disc:10), tax:(fx.tax!=null?+fx.tax:22), bpjs:(fx.bpjs!=null?+fx.bpjs:11)}; }
   /* Migrate: ensure Operator row has auto flag (ratio × total unit) and
      Plant-linked rows have autoPM tag. Existing project files may have been
      saved before these flags existed; without re-tagging, auto-sync di calc()
