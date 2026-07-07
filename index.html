@@ -7379,52 +7379,52 @@ function _buildPptxTBE(){
   s.addText('Powering Indonesia’s Mining Industry with Innovation & Sustainability',{x:0.6,y:6.58,w:10.2,h:0.92,fontSize:13,italic:true,color:WHT,fontFace:F,valign:'middle'});
   s.addText(stamp,{x:10.9,y:6.58,w:1.85,h:0.92,fontSize:12,color:'E8E8E8',align:'right',fontFace:F,valign:'middle'});
 
-  /* ================= 1 · RESUME ================= */
-  s=P.addSlide(); header(s,'Resume — Produksi, Cost & Rate');
-  let pr={}; try{ if(typeof prodCalcCompute==='function') pr=prodCalcCompute(); }catch(e){}
-  const pv=id=>{ const e=document.getElementById(id); return e?(+e.value||0):0; };
-  kpiBox(s,0.4,1.25,3.05,'🎯 PRODUKSI / PROJECT',(Math.round(pr.prodProject||0)).toLocaleString('id-ID'),(pr.projYears||0)+' thn · '+(pr.fleet||0)+' fleet',GREEN);
-  kpiBox(s,3.6,1.25,3.05,'💰 TOTAL COST',dom('tco_kpi_cost'),'per project',RED);
-  kpiBox(s,6.8,1.25,3.05,'📉 HPP',dom('tco_kpi_hpp'),dom('tco_kpi_hpp_unit'),TEAL);
-  kpiBox(s,10.0,1.25,2.95,'🎯 RATE RECOM',dom('tco_kpi_rate'),dom('tco_kpi_rate_unit'),PURPLE);
-  s.addText('Parameter Produksi',{x:0.4,y:3.1,w:12,h:0.35,fontSize:13,bold:true,color:NAVY,fontFace:F});
-  smallTbl(s,['Parameter','Nilai','','Parameter','Nilai'],[
-    ['PTY (Productivity)',(pr.pty||0).toLocaleString('id-ID')+' /jam','','Produksi / Bulan',(Math.round(pr.prodMonth||0)).toLocaleString('id-ID')],
-    ['PA (Physical Avail.)',pv('pc_pa')+' %','','Produksi / Tahun (1 fleet)',(Math.round(pr.prodYear||0)).toLocaleString('id-ID')],
-    ['UA (Use of Avail.)',pv('pc_ua')+' %','','Produksi / Tahun (total)',(Math.round((pr.prodYear||0)*(pr.fleet||0))).toLocaleString('id-ID')],
-    ['MOHH (jam/bln)',pv('pc_mohh'),'','Jumlah Fleet',(pr.fleet||0)],
-    ['Tahun Project',(pr.projYears||0),'','Produksi / Project',(Math.round(pr.prodProject||0)).toLocaleString('id-ID')],
-  ],[3.0,2.3,0.6,3.4,3.3],3.4);
-
-  /* ================= 2 · COST BREAKDOWN (donut + detail ala tab TCO) ================= */
-  s=P.addSlide(); header(s,'Cost Breakdown — Struktur Biaya (TCO)');
-  /* Donut kiri: 4 layer */
-  s.addText('Total Cost / Project',{x:0.4,y:1.18,w:5.7,h:0.28,fontSize:12,bold:true,color:NAVY,align:'center',fontFace:F});
-  s.addText(rp(tot),{x:0.4,y:1.44,w:5.7,h:0.4,fontSize:17,bold:true,color:RED,align:'center',fontFace:F});
-  try{ s.addChart('doughnut',[{name:'Cost',labels:['CAPEX Equipment','CAPEX Infra','OPEX','Overhead'],values:[Math.round(eqv),Math.round(inv),Math.round(opv),Math.round(ovv)]}],
-    {x:0.5,y:1.85,w:5.6,h:3.75,holeSize:56,chartColors:[ORANGE,'E8A33D',GREEN,TEAL],showLegend:true,legendPos:'b',legendFontSize:9,legendFontFace:F,showValue:false,showPercent:true,dataLabelColor:'FFFFFF',dataLabelFontSize:10,dataLabelFontBold:true,showTitle:false}); }catch(e){}
-  /* Tabel 4 layer (kanan atas) */
-  posTbl(s,['Layer','Nilai (Rp)','%'],[
-    ['🚜 CAPEX Equipment',rp(eqv),pct(eqv,tot).toFixed(1)+'%'],
-    ['🏗️ CAPEX Infra',rp(inv),pct(inv,tot).toFixed(1)+'%'],
-    ['⚙️ OPEX',rp(opv),pct(opv,tot).toFixed(1)+'%'],
-    ['🏢 Overhead',rp(ovv),pct(ovv,tot).toFixed(1)+'%'],
-    ['TOTAL',rp(tot),'100%'],
-  ],[3.0,2.65,1.0],6.3,1.2,6.65,0.3);
-  /* Sifat biaya (Fixed vs Variable) */
-  s.addText('Sifat Biaya (Fixed vs Variable)',{x:6.3,y:3.12,w:6.65,h:0.28,fontSize:11,bold:true,color:NAVY,fontFace:F});
-  mcard(s,6.3,3.42,3.25,0.9,GREEN,'🔒 Fixed',rp(bb.Fixed||0),pct(bb.Fixed||0,tot).toFixed(1)+'% of total');
-  mcard(s,9.72,3.42,3.23,0.9,ORANGE,'⚡ Variable',rp(bb.Variable||0),pct(bb.Variable||0,tot).toFixed(1)+'% of total');
-  /* Alokasi per fungsi */
-  s.addText('Alokasi per Fungsi',{x:6.3,y:4.5,w:6.65,h:0.28,fontSize:11,bold:true,color:NAVY,fontFace:F});
-  posTbl(s,['Fungsi','Nilai (Rp)','%'],['Production','Equipment','Support','Corporate'].map(k=>[k,rp(bf[k]||0),pct(bf[k]||0,tot).toFixed(1)+'%']),[2.7,2.95,1.0],6.3,4.78,6.65,0.26);
-  /* Benchmark strip (ala kartu benchmark tab TCO) */
-  const hppNum=parseFloat((dom('tco_kpi_hpp')||'').replace(/[^0-9.]/g,''))||0;
-  const opexShare=pct(opv,tot), ovhPct=pct(ovv,tot), fixedPct=pct(bb.Fixed||0,tot);
-  mcard(s,0.4,6.18,3.05,0.74,(hppNum<0.80?GREEN:hppNum<1.50?ORANGE:RED),'HPP',dom('tco_kpi_hpp'),'target $0.80–1.50');
-  mcard(s,3.6,6.18,3.05,0.74,(opexShare>55?GREEN:opexShare>40?ORANGE:RED),'OPEX SHARE',opexShare.toFixed(1)+'%','target > 55%');
-  mcard(s,6.8,6.18,3.05,0.74,(ovhPct<20?GREEN:ovhPct<30?ORANGE:RED),'OVERHEAD',ovhPct.toFixed(1)+'%','target < 20%');
-  mcard(s,10.0,6.18,2.95,0.74,(fixedPct<50?GREEN:fixedPct<65?ORANGE:RED),'FIXED COST',fixedPct.toFixed(1)+'%','target < 50%');
+  /* ================= RESUME + TCO PER STREAM (OB & Coal Getting, TIDAK disatukan) ================= */
+  let sc=null; try{ sc=(typeof computeStreamCosts==='function')?computeStreamCosts():null; }catch(e){}
+  const scMargin=(window.streamRateMargin||1.2);
+  const yrsP=+($('years')?.value)||3;
+  const usdFmt=(v)=>'$ '+(+v||0).toFixed(4);
+  const streamData=(sk)=>{ if(!sc) return null;
+    const eq=(+((sc.directEquipPrj||{})[sk])||0), op=(+((sc.operPrj||{})[sk])||0), tg=(+((sc.taggedPrj||{})[sk])||0), sh=(+((sc.sharedPrj||{})[sk])||0);
+    const total=(+((sc.totalByStreamPrj||{})[sk])||0), rateUSD=(+((sc.rateUSD||{})[sk])||0);
+    const annual=(+((sc.prod||{})[sk])||0), prj=(+((sc.prodPrj||{})[sk])||0);
+    return {eq,op,tg,sh,total,rateUSD,rateRecom:rateUSD*scMargin,annual,prj}; };
+  [{sk:'ob',name:'OB (Overburden)',unit:'BCM'},{sk:'coal_get',name:'Coal Getting',unit:'Ton'}].forEach(def=>{
+    const d=streamData(def.sk); if(!d || d.total<=0) return;  /* lewati stream tanpa biaya */
+    const u=def.unit;
+    /* ---- RESUME [stream] ---- */
+    let s=P.addSlide(); header(s,'Resume '+def.name+' — Cost & Rate');
+    kpiBox(s,0.4,1.25,3.05,'🎯 PRODUKSI / PROJECT',(Math.round(d.prj)).toLocaleString('id-ID'),u+' · '+yrsP+' thn',GREEN);
+    kpiBox(s,3.6,1.25,3.05,'💰 TOTAL COST',rp(d.total),'per project',RED);
+    kpiBox(s,6.8,1.25,3.05,'📉 HPP',usdFmt(d.rateUSD),'$/'+u,TEAL);
+    kpiBox(s,10.0,1.25,2.95,'🎯 RATE RECOM',usdFmt(d.rateRecom),'$/'+u+' (×'+scMargin.toFixed(2)+')',PURPLE);
+    s.addText('Komposisi Biaya — '+def.name,{x:0.4,y:3.1,w:12,h:0.35,fontSize:13,bold:true,color:NAVY,fontFace:F});
+    smallTbl(s,['Komponen','Nilai (Rp)','% Total'],[
+      ['🚜 Equipment (Own+Maint)',rp(d.eq),pct(d.eq,d.total).toFixed(1)+'%'],
+      ['👷 Operator',rp(d.op),pct(d.op,d.total).toFixed(1)+'%'],
+      ['🏷️ Tagged (Support+MP)',rp(d.tg),pct(d.tg,d.total).toFixed(1)+'%'],
+      ['🤝 Shared',rp(d.sh),pct(d.sh,d.total).toFixed(1)+'%'],
+      ['TOTAL / PROJECT',rp(d.total),'100%'],
+    ],[5.2,4.4,3.0],3.4);
+    s.addText('Produksi: '+(Math.round(d.annual)).toLocaleString('id-ID')+' '+u+'/th  ·  '+(Math.round(d.annual/12)).toLocaleString('id-ID')+' '+u+'/bln  ·  '+(Math.round(d.prj)).toLocaleString('id-ID')+' '+u+'/project',
+      {x:0.4,y:6.45,w:12.55,h:0.4,fontSize:11,bold:true,color:NAVY,fontFace:F});
+    /* ---- TCO [stream] (donut struktur biaya) ---- */
+    s=P.addSlide(); header(s,'TCO '+def.name+' — Struktur Biaya');
+    s.addText('Total Cost / Project',{x:0.4,y:1.18,w:5.7,h:0.28,fontSize:12,bold:true,color:NAVY,align:'center',fontFace:F});
+    s.addText(rp(d.total),{x:0.4,y:1.44,w:5.7,h:0.4,fontSize:17,bold:true,color:RED,align:'center',fontFace:F});
+    try{ s.addChart('doughnut',[{name:'Cost',labels:['Equipment (Own+Maint)','Operator','Tagged (Sup+MP)','Shared'],values:[Math.round(d.eq),Math.round(d.op),Math.round(d.tg),Math.round(d.sh)]}],
+      {x:0.5,y:1.85,w:5.6,h:3.9,holeSize:56,chartColors:[ORANGE,TEAL,GREEN,'8B7BB0'],showLegend:true,legendPos:'b',legendFontSize:9,legendFontFace:F,showValue:false,showPercent:true,dataLabelColor:'FFFFFF',dataLabelFontSize:10,dataLabelFontBold:true,showTitle:false}); }catch(e){}
+    posTbl(s,['Komponen','Nilai (Rp)','%'],[
+      ['🚜 Equipment (Own+Maint)',rp(d.eq),pct(d.eq,d.total).toFixed(1)+'%'],
+      ['👷 Operator',rp(d.op),pct(d.op,d.total).toFixed(1)+'%'],
+      ['🏷️ Tagged (Sup+MP)',rp(d.tg),pct(d.tg,d.total).toFixed(1)+'%'],
+      ['🤝 Shared',rp(d.sh),pct(d.sh,d.total).toFixed(1)+'%'],
+      ['TOTAL',rp(d.total),'100%'],
+    ],[3.1,2.55,1.0],6.3,1.2,6.65,0.3);
+    mcard(s,6.3,3.5,3.25,1.0,TEAL,'📉 HPP',usdFmt(d.rateUSD),'$/'+u);
+    mcard(s,9.72,3.5,3.23,1.0,PURPLE,'🎯 Rate Recom',usdFmt(d.rateRecom),'$/'+u+' (×'+scMargin.toFixed(2)+')');
+    mcard(s,6.3,4.7,6.65,1.0,(d.rateUSD<0.80?GREEN:d.rateUSD<1.50?ORANGE:RED),'Benchmark HPP',usdFmt(d.rateUSD)+' /'+u,'target OB $0.80–1.50/BCM · '+(d.rateUSD<1.50?'kompetitif':'di atas benchmark'));
+  });
 
   /* ================= 3 · TOP 10 COST TERBESAR ================= */
   const topItems=(comp.items||[]).slice().sort((a,b)=>(b.value||0)-(a.value||0)).slice(0,10);
