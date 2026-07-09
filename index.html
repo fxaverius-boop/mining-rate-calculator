@@ -285,6 +285,9 @@
   body[data-theme="light"] [style*="color:#78716c"],
   body[data-theme="light"] [style*="color:#71717a"]{color:#64748B !important}
   body[data-theme="light"] [style*="color:#8ea0c4"]{color:#475569 !important}
+  body[data-theme="light"] .text-slate-400,
+  body[data-theme="light"] .text-slate-500{color:#475569 !important}
+  body[data-theme="light"] .text-blue-200{color:#1E40AF !important}
 
   /* Theme toggle button — subtle amber border, flips icon based on current theme. */
   .theme-toggle{
@@ -6182,13 +6185,13 @@ function drawCharts(eq,sup,mp){
         legend:{display:false},
         tooltip:{callbacks:{label:(c)=>` Rp ${fmtBn(c.parsed.x)} (${catTotal>0?(c.parsed.x/catTotal*100).toFixed(1):0}%)`}},
         datalabels:{
-          anchor:'end',align:'end',color:'#e2e8f0',font:{weight:'600',size:11},
+          anchor:'end',align:'end',color:_axText(),font:{weight:'600',size:11},
           formatter:(v)=>catTotal>0 ? ((v/catTotal*100).toFixed(1)+'%') : ''
         }
       },
       scales:{
         x:{ticks:{color:_axTick(),callback:v=>fmtBn(v)},grid:{color:_axGrid()}},
-        y:{ticks:{color:'#cbd5e1',font:{size:11}},grid:{display:false}}
+        y:{ticks:{color:_axTick(),font:{size:11}},grid:{display:false}}
       },
       layout:{padding:{right:50}}
     }
@@ -6221,13 +6224,13 @@ function drawCharts(eq,sup,mp){
           title:(c)=>top[c[0].dataIndex].label,
           label:(c)=>` Rp ${fmtBn(c.parsed.x)} (${topTotal>0?(c.parsed.x/topTotal*100).toFixed(1):0}%)`}},
         datalabels:{
-          anchor:'end',align:'end',color:'#e2e8f0',font:{weight:'600',size:10},
+          anchor:'end',align:'end',color:_axText(),font:{weight:'600',size:10},
           formatter:(v)=>topTotal>0 ? ((v/topTotal*100).toFixed(1)+'%') : ''
         }
       },
       scales:{
         x:{ticks:{color:_axTick(),callback:v=>fmtBn(v)},grid:{color:_axGrid()}},
-        y:{ticks:{color:'#cbd5e1',font:{size:10.5}},grid:{display:false}}
+        y:{ticks:{color:_axTick(),font:{size:10.5}},grid:{display:false}}
       },
       layout:{padding:{right:55}}
     }
@@ -6402,7 +6405,7 @@ function drawCharts(eq,sup,mp){
       },
       scales:{
         x:{stacked:true,ticks:{color:_axTick(),callback:v=>fmtBn(v)},grid:{color:_axGrid()}},
-        y:{stacked:true,ticks:{color:'#cbd5e1',font:{weight:'600'}},grid:{display:false}}
+        y:{stacked:true,ticks:{color:_axTick(),font:{weight:'600'}},grid:{display:false}}
       }
     }
   });
@@ -6419,7 +6422,7 @@ function drawCharts(eq,sup,mp){
       cutout:'55%',
       animation:{duration:900},
       plugins:{
-        legend:{position:'right',labels:{color:'#f4ede4',font:{size:11,weight:'600'},boxWidth:12,padding:10,generateLabels:(ch)=>{
+        legend:{position:'right',labels:{color:_axText(),font:{size:11,weight:'600'},boxWidth:12,padding:10,generateLabels:(ch)=>{
           const ds = ch.data.datasets[0];
           return ch.data.labels.map((l,i)=>({
             text:`${l}  ${lvTotal>0?((ds.data[i]/lvTotal*100).toFixed(1)+'%'):''}`,
@@ -10441,7 +10444,7 @@ function tcoRender(){
       indexAxis:'y',
       plugins:{legend:{display:false},
         tooltip:{callbacks:{label:c=>` ${fmtIDR(c.parsed.x)} (${total>0?(c.parsed.x/total*100).toFixed(1):0}%)`}},
-        datalabels:{color:'#fff',font:{weight:'700',size:11},anchor:'end',align:'end',formatter:v=>total>0&&v/total>0.05?((v/total*100).toFixed(0)+'%'):''}
+        datalabels:{color:_axText(),font:{weight:'700',size:11},anchor:'end',align:'end',formatter:v=>total>0&&v/total>0.05?((v/total*100).toFixed(0)+'%'):''}
       },
       scales:{
         x:{ticks:{color:_axTick(),callback:v=>fmtBn(v)},grid:{color:_axGrid()}},
@@ -11848,7 +11851,7 @@ function sensRender(){
     options: {
       indexAxis:'y',
       plugins:{
-        legend:{labels:{color:'#f4ede4',font:{size:11,weight:'600'},boxWidth:12}},
+        legend:{labels:{color:_axText(),font:{size:11,weight:'600'},boxWidth:12}},
         tooltip:{callbacks:{label:c=>` ${c.dataset.label}: ${fmtIDR(c.parsed.x)}`}},
         datalabels:{display:false},
       },
@@ -11882,7 +11885,7 @@ function sensRender(){
     },
     options:{
       plugins:{
-        legend:{labels:{color:'#f4ede4',font:{size:11,weight:'600'},boxWidth:12}},
+        legend:{labels:{color:_axText(),font:{size:11,weight:'600'},boxWidth:12}},
         tooltip:{callbacks:{label:c=>` ${c.dataset.label}: ${fmtIDR(c.parsed.y)}`}},
         datalabels:{display:false},
       },
@@ -12181,7 +12184,7 @@ function renderRentalQtySensitivity(){
       options:{
         responsive:true, maintainAspectRatio:false,
         plugins:{
-          legend:{labels:{color:'#fef3c7',font:{size:10}}},
+          legend:{labels:{color:_axText(),font:{size:10}}},
           tooltip:{titleColor:'#fbbf24',bodyColor:'#fef3c7',backgroundColor:'#14110e',borderColor:'#fbbf24',borderWidth:1, callbacks:{label:c=>`${c.dataset.label}: Rp ${Math.round(c.parsed.y).toLocaleString('id-ID')}`}},
           datalabels:{display:false},
         },
