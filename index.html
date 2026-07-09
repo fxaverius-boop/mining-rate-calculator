@@ -3805,20 +3805,24 @@ function cfCompute(){
   const upfront = (ma.dpEquip||0) + (ma.capexInfra||0);
   /* Rate & alokasi per-stream dari TCO (computeStreamCosts). */
   let _sc=null; try{ _sc = (typeof computeStreamCosts==='function') ? computeStreamCosts() : null; }catch(e){}
-  /* Margin markup rate — bisa diatur di kontrol Cashflow; default = stream margin TCO. */
-  const mgn = (cfState.margin!=null && cfState.margin!=='') ? (+cfState.margin||1.2) : (window.streamRateMargin || +($('margin')?.value) || 1.2);
   const usdRp = +cf.usd || 16500;
   /* Basis: OB (BCM) / Coal Getting (Ton) / Rental (Jam — minimal hour). */
   const basis = (cfState.basis==='coal') ? 'coal' : (cfState.basis==='rental' ? 'rental' : 'ob');
   const unit  = basis==='coal' ? 'Ton' : (basis==='rental' ? 'Jam' : 'BCM');
+  /* Margin markup rate — bisa diatur di kontrol Cashflow. Default RENTAL = margin kartu TCO
+     (window._tcoRentalMargin) agar angka SAMA PERSIS dgn kartu "Rental per Unit"; lainnya = stream margin. */
+  const _mgnDef = (basis==='rental' && typeof window._tcoRentalMargin==='number' && window._tcoRentalMargin>0)
+                ? window._tcoRentalMargin : (window.streamRateMargin || +($('margin')?.value) || 1.2);
+  const mgn = (cfState.margin!=null && cfState.margin!=='') ? (+cfState.margin||1.2) : _mgnDef;
   let streamAnnual, autoFlat, autoRate, rateUSD, rateIDR;
   if(basis==='rental'){
-    /* Pakai HPP mentah per unit dari TCO (window._tcoRentalUnits) → blended Rp/jam × margin. */
-    const rl=(window._tcoRentalUnits||[]).filter(u=>u.rental && u.qty>0);
+    /* Pakai HPP mentah per unit dari TCO (window._tcoRentalUnits, SEMUA unit non-LV spt kartu TCO). */
+    const rl=(window._tcoRentalUnits||[]).filter(u=>u.qty>0);
     const totHrMo  = rl.reduce((a,u)=>a+u.minHrMo*u.qty,0);
     const totCostMo= rl.reduce((a,u)=>a+u.hppPerMo*u.qty,0);   /* Rp/bln (mentah, pre-margin) */
     streamAnnual = totHrMo*12;                                 /* total jam sewa /tahun */
     autoFlat = totHrMo;                                        /* jam /bulan */
+    /* Revenue = TOTAL sewa bulanan (Σ RATE/MO × qty) = Σ hppPerMo × qty × margin. Rate/jam = blended. */
     const blendedHppHr = totHrMo>0 ? totCostMo/totHrMo : 0;
     autoRate = blendedHppHr*mgn;                               /* Rp/jam (sudah × margin) */
     rateIDR  = (cfState.rate!=null && cfState.rate!=='') ? (+cfState.rate||0)*usdRp : autoRate;
@@ -3979,7 +3983,7 @@ function cfSetProd(t,v){ if(!cfState.prod) cfState.prod={}; if(v===''||v==null) 
    Harga sewa = HPP × margin (margin diatur di kontrol Cashflow). */
 function cfRentalUnitRows(mgn){
   try{
-    const list=(window._tcoRentalUnits||[]).filter(u=>u.rental && u.qty>0);
+    const list=(window._tcoRentalUnits||[]).filter(u=>u.qty>0);   /* semua unit non-LV, spt kartu TCO */
     const scheme=$('rental_scheme')?.value||'full', riskP=(+($('rental_risk')?.value)||0)/100;
     const out=list.map(u=>({ name:u.name, qty:u.qty, minHrMo:u.minHrMo,
       hppHr:u.hppPerHr, rateHr:u.hppPerHr*mgn, rateMo:u.hppPerMo*mgn, subMo:u.hppPerMo*mgn*u.qty }));
@@ -11052,6 +11056,7 @@ function tcoRender(){
     }).join('');
     $('tco_rental_perunit_cards').innerHTML = rows;
     window._tcoRentalUnits = _rentalUnitsExport;   /* dibaca tab Cashflow (basis Rental) */
+    window._tcoRentalMargin = margin;              /* margin rate kartu TCO → default Cashflow */
     /* Fleet total summary — totSum sudah include risk; kalikan tahun kontrak untuk total project */
     const fleetTotalProject = totSum * years;
     $('tco_rental_fleet_total').innerHTML = `
