@@ -3820,6 +3820,7 @@ function cfCompute(){
                 ? window._tcoRentalMargin : (window.streamRateMargin || +($('margin')?.value) || 1.2);
   const mgn = (cfState.margin!=null && cfState.margin!=='') ? (+cfState.margin||1.2) : _mgnDef;
   let streamAnnual, autoFlat, autoRate, rateUSD, rateIDR;
+  let rentalRevMo = 0;                                          /* revenue/bln rental = TOTAL Subtotal/Bulan tabel alat */
   if(basis==='rental'){
     /* Pakai HPP mentah per unit dari TCO (window._tcoRentalUnits, SEMUA unit non-LV spt kartu TCO). */
     const rl=(window._tcoRentalUnits||[]).filter(u=>u.qty>0);
@@ -3827,9 +3828,11 @@ function cfCompute(){
     const totCostMo= rl.reduce((a,u)=>a+u.hppPerMo*u.qty,0);   /* Rp/bln (mentah, pre-margin) */
     streamAnnual = totHrMo*12;                                 /* total jam sewa /tahun */
     autoFlat = totHrMo;                                        /* jam /bulan */
-    /* Revenue = TOTAL sewa bulanan (Σ RATE/MO × qty) = Σ hppPerMo × qty × margin. Rate/jam = blended. */
+    /* Revenue rental = TOTAL Subtotal/Bulan tabel "ALAT YANG DISEWAKAN" (SESUAI TCO)
+       = Σ hppPerMo × margin × qty = totCostMo × mgn. PERSIS sama dgn cfRentalUnitRows → tabel. */
+    rentalRevMo = totCostMo*mgn;
     const blendedHppHr = totHrMo>0 ? totCostMo/totHrMo : 0;
-    autoRate = blendedHppHr*mgn;                               /* Rp/jam (sudah × margin) */
+    autoRate = blendedHppHr*mgn;                               /* Rp/jam (sudah × margin) — utk tampil */
     rateIDR  = (cfState.rate!=null && cfState.rate!=='') ? (+cfState.rate||0)*usdRp : autoRate;
     rateUSD  = rateIDR/usdRp;
   } else {
@@ -3864,7 +3867,9 @@ function cfCompute(){
     const isOp = (t>=1 && t<=N);
     const p = isOp ? (prod[t]||0) : 0;
     const src = t - lag;
-    const revenue = (src>=1 && src<=N) ? (prod[src]||0)*rateIDR : 0;  /* = produksi × Rate Rekomendasi */
+    /* Rental: revenue/bln FIXED = TOTAL Subtotal/Bulan tabel alat (SESUAI TCO), tak ikut sel Jam.
+       Lainnya: revenue = produksi × Rate Rekomendasi. */
+    const revenue = (src>=1 && src<=N) ? (basis==='rental' ? rentalRevMo : (prod[src]||0)*rateIDR) : 0;
     const capex = (t===0) ? upfront : 0;
     const annSpike = (isOp && t%12===0) ? annualCost : 0;            /* lonjakan tiap 12 bln (M12,M24,…) */
     const comp = isOp ? {inst:(t<=tenorMo?instMo:0), sal:salMonthly, maint:ma.moMaint||0, sup:supMonthly, akom:ma.moAkom||0, ann:annSpike}
@@ -3880,7 +3885,7 @@ function cfCompute(){
   const totalRev = rows.reduce((a,r)=>a+r.revenue,0);
   const totalExp = rows.reduce((a,r)=>a+r.expense,0);
   const netMargin = totalRev-totalExp;
-  return {rows,N,lag,upfront,totalRev,totalExp,netMargin,peak:-peak,breakEven:be,marginPct:totalRev>0?netMargin/totalRev*100:0,cf,ma,basis,unit,effFlat,streamAnnual,rateUSD,rateIDR,usdRp,tenorY,tenorMo,instMo,mgn,annualCost};
+  return {rows,N,lag,upfront,totalRev,totalExp,netMargin,peak:-peak,breakEven:be,marginPct:totalRev>0?netMargin/totalRev*100:0,cf,ma,basis,unit,effFlat,streamAnnual,rateUSD,rateIDR,usdRp,tenorY,tenorMo,instMo,mgn,annualCost,rentalRevMo};
 }
 function cfRender(){
   const host=$('cf_body'); if(!host) return;
@@ -3901,14 +3906,14 @@ function cfRender(){
   html+='<label class="text-xs" style="color:#a8a29e">Basis Produksi<br><select onchange="cfSetBasis(this.value)" class="num-in mt-1" style="width:170px" title="Volume ditarik dari perhitungan stream terpilih (per tahun ÷ 12)"><option value="ob"'+(M.basis==='ob'?' selected':'')+'>⛏️ OB (BCM)</option><option value="coal"'+(M.basis==='coal'?' selected':'')+'>🪨 Coal Getting (Ton)</option><option value="rental"'+(isRent?' selected':'')+'>💰 Rental (Jam)</option></select></label>';
   html+='<label class="text-xs" style="color:#a8a29e">'+(isRent?'Minimal Hour /bulan (Jam)':'Produksi Bulanan flat ('+M.unit+')')+'<br><input type="number" min="0" value="'+Math.round(M.effFlat)+'" onchange="cfSetFlat(this.value)" class="num-in mt-1" style="width:140px" title="'+(isRent?'Total jam sewa minimum per bulan (= jumlah unit rental × jam minimum/unit). Kosongkan → otomatis dari Rental Config.':'Set SEMUA bulan ke nilai ini (flat). Kosongkan → otomatis dari '+basisName+'/tahun ÷ 12.')+'"></label>';
   if(isRent){
-    html+='<label class="text-xs" style="color:#a8a29e">Harga Sewa Rekomendasi (Rp/Jam)<br><input type="number" step="1000" min="0" value="'+Math.round(M.rateIDR)+'" onchange="cfSetRateRp(this.value)" class="num-in mt-1" style="width:150px" title="Harga sewa rekomendasi dari TCO (HPP rental × margin), satuan Rupiah per jam. Revenue = Jam × Harga Sewa. Kosongkan → ikut nilai TCO."></label>';
+    html+='<label class="text-xs" style="color:#a8a29e">Harga Sewa Rekomendasi (Rp/Jam)<br><input type="number" step="1000" min="0" value="'+Math.round(M.rateIDR)+'" onchange="cfSetRateRp(this.value)" class="num-in mt-1" style="width:150px" title="Harga sewa rekomendasi dari TCO (HPP rental × margin), satuan Rupiah per jam — referensi tampilan. Revenue rental = TOTAL Subtotal/Bulan tabel alat (SESUAI TCO), bukan Jam × harga ini."></label>';
   } else {
     html+='<label class="text-xs" style="color:#a8a29e">Rate Rekomendasi ($/'+M.unit+')<br><input type="number" step="0.0001" min="0" value="'+M.rateUSD.toFixed(4)+'" onchange="cfSetRate(this.value)" class="num-in mt-1" style="width:130px" title="Rate rekomendasi dari TCO. Revenue = Produksi × Rate. Kosongkan → ikut nilai TCO."></label>';
   }
   html+='<button class="btn btn-sec" onclick="cfResetProd()" style="padding:5px 10px;font-size:11px" title="Hapus semua edit per-sel → kembali flat">↺ Reset ke flat</button>';
   html+='</div>';
-  html+='<div class="text-xs" style="color:#a8a29e;margin-bottom:12px">Revenue = <b style="color:#fde68a">'+(isRent?'Jam × Harga Sewa':'Produksi × Rate')+'</b> · '+(isRent
-    ? 'Harga Sewa Rekomendasi TCO = <b style="color:#fde68a">Rp '+Math.round(M.rateIDR).toLocaleString('id-ID')+'/Jam</b> ($'+M.rateUSD.toFixed(4)+'/jam)'
+  html+='<div class="text-xs" style="color:#a8a29e;margin-bottom:12px">Revenue = <b style="color:#fde68a">'+(isRent?'TOTAL Subtotal/Bulan tabel alat (SESUAI TCO)':'Produksi × Rate')+'</b> · '+(isRent
+    ? 'Total sewa/bln = <b style="color:#fde68a">Rp '+Math.round(M.rentalRevMo||0).toLocaleString('id-ID')+'</b> · Harga sewa ref = Rp '+Math.round(M.rateIDR).toLocaleString('id-ID')+'/Jam'
     : 'Rate Rekomendasi TCO (<b>'+basisName+'</b>) = <b style="color:#fde68a">$'+M.rateUSD.toFixed(4)+'/'+M.unit+'</b> (≈ Rp '+cfFmtB(M.rateIDR)+'/'+M.unit+')')
     +' · kas masuk +'+M.lag+' bln · Cicilan alat <b>'+M.tenorY+' th</b> ('+cfFmtB(M.instMo)+'/bln, '+M.tenorMo+' bln) · Biaya tahunan '+cfFmtB(M.annualCost)+'/th (lonjakan tiap 12 bln) · Durasi <b>'+M.N+' bln</b> · '+(isRent?'Jam sewa':'Produksi')+' '+cfFmtB(M.streamAnnual)+' '+M.unit+'/th. Sel '+(isRent?'Jam':'Produksi')+' bisa diedit satu-satu.</div>';
   /* ----- KPI ----- */
