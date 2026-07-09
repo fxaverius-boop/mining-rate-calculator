@@ -291,6 +291,30 @@
   /* Light: SEMUA gradient gelap inline (mengandung ",#14110e") → permukaan terang.
      Aman: tidak match "color:#14110e" (prefix koma = posisi warna di dalam gradient). */
   body[data-theme="light"] [style*=",#14110e"]{background:#F8FAFC !important}
+  /* PENGECUALIAN: teks berwarna DI DALAM th (header slate gelap) harus versi TERANG,
+     bukan digelapkan — specificity th[...] menang atas override umum di atas. */
+  body[data-theme="light"] th[style*="color:#fbbf24"],
+  body[data-theme="light"] th [style*="color:#fbbf24"],
+  body[data-theme="light"] th[style*="color:#fcd34d"],
+  body[data-theme="light"] th[style*="color:#fde68a"],
+  body[data-theme="light"] th [style*="color:#fde68a"]{color:#FDE68A !important}
+  body[data-theme="light"] th[style*="color:#84cc16"],
+  body[data-theme="light"] th [style*="color:#84cc16"],
+  body[data-theme="light"] th[style*="color:#a3e635"]{color:#86EFAC !important}
+  body[data-theme="light"] th[style*="color:#22d3ee"],
+  body[data-theme="light"] th [style*="color:#22d3ee"]{color:#67E8F9 !important}
+  body[data-theme="light"] th[style*="color:#38bdf8"],
+  body[data-theme="light"] th [style*="color:#38bdf8"]{color:#93C5FD !important}
+  body[data-theme="light"] th[style*="color:#f87171"]{color:#FCA5A5 !important}
+  body[data-theme="light"] th[style*="color:#a8a29e"],
+  body[data-theme="light"] th[style*="color:#78716c"],
+  body[data-theme="light"] th [style*="color:#a8a29e"]{color:#CBD5E1 !important}
+  body[data-theme="light"] th[style*="color:#fef3c7"],
+  body[data-theme="light"] th [style*="color:#fef3c7"]{color:#F8FAFC !important}
+  /* Border amber/emas inline → slate-blue di light (mis. input Faktor maintenance) */
+  body[data-theme="light"] [style*="solid #fbbf24"],
+  body[data-theme="light"] [style*="solid #f59e0b"]{border-color:#94A3B8 !important}
+  body[data-theme="light"] [style*="background:#1e3a2a"]{background:#DCFCE7 !important}
   body[data-theme="light"] [style*="background:#0c1620"]{background:#EFF6FF !important}
   body[data-theme="light"] [style*="background:#0f0a06"]{background:#F1F5F9 !important}
   body[data-theme="light"] .pm-bar-val{color:#0F172A}
