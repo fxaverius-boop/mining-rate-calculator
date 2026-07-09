@@ -288,6 +288,14 @@
   body[data-theme="light"] .text-slate-400,
   body[data-theme="light"] .text-slate-500{color:#475569 !important}
   body[data-theme="light"] .text-blue-200{color:#1E40AF !important}
+  /* Light: SEMUA gradient gelap inline (mengandung ",#14110e") → permukaan terang.
+     Aman: tidak match "color:#14110e" (prefix koma = posisi warna di dalam gradient). */
+  body[data-theme="light"] [style*=",#14110e"]{background:#F8FAFC !important}
+  body[data-theme="light"] [style*="background:#0c1620"]{background:#EFF6FF !important}
+  body[data-theme="light"] [style*="background:#0f0a06"]{background:#F1F5F9 !important}
+  body[data-theme="light"] .pm-bar-val{color:#0F172A}
+  body[data-theme="light"] .pm-bar-label{color:#64748B}
+  body[data-theme="light"] .pm-bar-chart{border-bottom-color:#CBD5E1}
 
   /* Theme toggle button — subtle amber border, flips icon based on current theme. */
   .theme-toggle{
@@ -1718,13 +1726,19 @@
       </label>
     </div>
     <style>
-      #tab-prodcalc .pc-card{background:linear-gradient(155deg,#1c1714,#14110e);border:1px solid #3d342a;border-radius:12px;padding:14px 16px}
-      #tab-prodcalc .pc-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:5px 0;border-top:1px solid #251f1a;font-size:12px}
+      #tab-prodcalc .pc-card{background:linear-gradient(155deg,#16294A,#0F1B2D);border:1px solid #24385A;border-radius:12px;padding:14px 16px}
+      #tab-prodcalc .pc-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:5px 0;border-top:1px solid #1E3050;font-size:12px}
       #tab-prodcalc .pc-row:first-of-type{border-top:none}
-      #tab-prodcalc .pc-lbl{color:#d6d3d1}
+      #tab-prodcalc .pc-lbl{color:#C9D4E4}
       #tab-prodcalc .pc-in{width:96px;text-align:right;padding:4px 6px;font-size:12px;height:26px;background:#0c1620;border:1px solid #1d4ed8;border-radius:5px;color:#93c5fd;font-weight:700}
-      #tab-prodcalc .pc-u{width:62px;color:#78716c;font-size:10px;text-align:left}
-      #tab-prodcalc .pc-out{width:96px;text-align:right;font-family:'JetBrains Mono',monospace;font-weight:800;color:#fbbf24;font-size:13px}
+      #tab-prodcalc .pc-u{width:62px;color:#8FA1B8;font-size:10px;text-align:left}
+      #tab-prodcalc .pc-out{width:96px;text-align:right;font-family:'JetBrains Mono',monospace;font-weight:800;color:#FFD07A;font-size:13px}
+      body[data-theme="light"] #tab-prodcalc .pc-card{background:#FFFFFF;border-color:#CBD5E1}
+      body[data-theme="light"] #tab-prodcalc .pc-row{border-top-color:#E2E8F0}
+      body[data-theme="light"] #tab-prodcalc .pc-lbl{color:#334155}
+      body[data-theme="light"] #tab-prodcalc .pc-in{background:#FFFFFF;color:#1E40AF}
+      body[data-theme="light"] #tab-prodcalc .pc-u{color:#64748B}
+      body[data-theme="light"] #tab-prodcalc .pc-out{color:#1E40AF}
       #tab-prodcalc .pc-sect{font-weight:800;font-size:12px;letter-spacing:.5px;margin-bottom:8px;display:flex;align-items:center;gap:6px}
     </style>
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
