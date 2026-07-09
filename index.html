@@ -1939,6 +1939,11 @@
     if (state.timer) clearTimeout(state.timer);
     state.timer = setTimeout(push, DEBOUNCE_MS);
   }
+  // Flush segera ke cloud (dipakai tombol 💾 Save di app) — jangan tunggu debounce 1.5s,
+  // supaya data langsung aman meski user menutup/refresh cepat atau browser clear-on-close.
+  window.rcCloudFlush = function () {
+    try { if (state.timer) { clearTimeout(state.timer); state.timer = null; } state.dirty = true; push(); } catch (e) {}
+  };
   function lsGet(k, def) { try { var v = JSON.parse(localStorage.getItem(k) || 'null'); return v == null ? def : v; } catch (e) { return def; } }
   async function push() {
     if (!state.dirty) return;
@@ -7201,6 +7206,9 @@ function saveNow(){
     writeHistory(hist);
     _dirty = false;
     _saveInFlight = false;
+    /* Cloud build: push SEGERA ke server (jangan tunggu debounce) supaya save langsung
+       aman meski browser ditutup cepat / clear-on-close. No-op di build lokal. */
+    try { if(typeof window.rcCloudFlush==='function') window.rcCloudFlush(); } catch(e){}
     const ind = $('autosave_ind');
     if(ind){
       const t = new Date();
