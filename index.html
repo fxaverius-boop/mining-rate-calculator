@@ -3897,6 +3897,24 @@ function cfRender(){
   html+='</div>';
   /* ----- Grafik (datalabels dimatikan; tinggi tetap) ----- */
   html+='<div style="background:#14110e;border:1px solid #3d342a;border-radius:10px;padding:10px;margin-bottom:14px"><div style="height:240px;position:relative"><canvas id="cf_chart"></canvas></div></div>';
+  /* ----- [Rental] Daftar alat sewa: Qty + Biaya Sewa per unit sesuai TCO ----- */
+  if(isRent){
+    const ru=cfRentalUnitRows(M.mgn||1.2);
+    html+='<div style="background:#14110e;border:1px solid #3d342a;border-radius:10px;padding:12px;margin-bottom:14px">';
+    html+='<div style="font-size:12px;font-weight:800;letter-spacing:.6px;color:#fbbf24;margin-bottom:8px">🚜 ALAT YANG DISEWAKAN — QTY & BIAYA SEWA (SESUAI TCO)</div>';
+    if(!ru.rows.length){
+      html+='<div class="text-xs" style="color:#a8a29e;font-style:italic">— Belum ada equipment ber-stream 💰 Rental di Equipment Cost, atau Min Hour belum diisi. —</div>';
+    } else {
+      const totQty=ru.rows.reduce((a,b)=>a+b.qty,0), totSubMo=ru.rows.reduce((a,b)=>a+b.subMo,0);
+      html+='<div style="overflow-x:auto"><table style="font-size:11px;border-collapse:collapse;min-width:100%">';
+      html+='<thead><tr><th style="padding:6px 8px">Unit</th><th class="text-right" style="padding:6px 8px">Qty</th><th class="text-right" style="padding:6px 8px">Min Hour /bln/unit</th><th class="text-right" style="padding:6px 8px" title="HPP TCO per unit per jam (ownership + maintenance + pool skema, incl. risk)">HPP /Jam</th><th class="text-right" style="padding:6px 8px" title="= HPP/Jam × margin '+(M.mgn||1.2).toFixed(2)+'×">Harga Sewa /Jam</th><th class="text-right" style="padding:6px 8px">Sewa /Bulan /unit</th><th class="text-right" style="padding:6px 8px">Subtotal /Bulan</th></tr></thead><tbody>';
+      ru.rows.forEach(u=>{ html+='<tr><td style="padding:5px 8px;color:#fef3c7;font-weight:700">'+u.name+'</td><td class="text-right mono" style="padding:5px 8px;color:#fbbf24;font-weight:800">'+u.qty+'</td><td class="text-right mono" style="padding:5px 8px;color:#e7e5e4">'+Math.round(u.minHrMo).toLocaleString('id-ID')+'</td><td class="text-right mono" style="padding:5px 8px;color:#fde68a">Rp '+Math.round(u.hppHr).toLocaleString('id-ID')+'</td><td class="text-right mono" style="padding:5px 8px;color:#84cc16;font-weight:800">Rp '+Math.round(u.rateHr).toLocaleString('id-ID')+'</td><td class="text-right mono" style="padding:5px 8px;color:#84cc16">Rp '+Math.round(u.rateMo).toLocaleString('id-ID')+'</td><td class="text-right mono" style="padding:5px 8px;color:#fbbf24;font-weight:800">Rp '+Math.round(u.subMo).toLocaleString('id-ID')+'</td></tr>'; });
+      html+='<tr style="border-top:2px solid #3d342a"><td style="padding:6px 8px;font-weight:800;color:#fef3c7">TOTAL</td><td class="text-right mono" style="padding:6px 8px;color:#fbbf24;font-weight:800">'+totQty+'</td><td></td><td></td><td></td><td></td><td class="text-right mono" style="padding:6px 8px;color:#fbbf24;font-weight:800">Rp '+Math.round(totSubMo).toLocaleString('id-ID')+'</td></tr>';
+      html+='</tbody></table></div>';
+      html+='<div class="text-[10px] mt-2" style="color:#a8a29e">Harga sewa = HPP TCO per unit × margin '+(M.mgn||1.2).toFixed(2)+'× · skema '+ru.scheme+' · risk +'+(ru.riskP*100).toFixed(0)+'% · rumus sama dgn "Rental per Unit" di tab TCO.</div>';
+    }
+    html+='</div>';
+  }
   /* ----- Tabel ----- */
   html+='<div style="overflow-x:auto;border:1px solid #3d342a;border-radius:10px"><table class="mono" style="font-size:10px;white-space:nowrap;border-collapse:collapse;min-width:100%">';
   const thL=(text,tip,color,bold,bg)=>'<th style="position:sticky;left:0;background:'+(bg||'#1a1410')+';padding:4px 8px;text-align:left;z-index:2;border-right:1px solid #3d342a"'+(tip?(' title="'+String(tip).replace(/"/g,'&quot;')+'"'):'')+'><span style="color:'+(color||'#e7e5e4')+';font-weight:'+(bold?'700':'600')+';cursor:'+(tip?'help':'default')+'">'+text+(tip?' <span style="color:#78716c;font-size:9px">ⓘ</span>':'')+'</span></th>';
@@ -3942,6 +3960,35 @@ function cfRender(){
 }
 function cfSetLag(v){ cfState.lag=Math.max(0,Math.round(+v||0)); if(typeof markDirty==='function') markDirty(); cfRender(); }
 function cfSetProd(t,v){ if(!cfState.prod) cfState.prod={}; if(v===''||v==null) delete cfState.prod[t]; else cfState.prod[t]=+v||0; if(typeof markDirty==='function') markDirty(); cfRender(); }
+/* Daftar alat rental utk Cashflow: qty + biaya sewa per unit sesuai TCO (rumus sama dgn
+   renderRentalUnitDetail di tab TCO: ownership + maint + pool skema, × risk, × margin). */
+function cfRentalUnitRows(mgn){
+  try{
+    const adj=+($('adj')?.value)||1.3, years=+($('years')?.value)||3, usd=+($('usd')?.value)||16500;
+    const insP=(+($('rental_ins')?.value)||0)/100, finP=(+($('rental_fin')?.value)||0)/100;
+    const dpP=(+($('rental_dp')?.value)||0)/100, dpToDep=($('rental_dp_to_dep')?.checked!==false);
+    const minHrMo=+($('prod_rental_minhr')?.value)||0, minHr=minHrMo*12;
+    const riskP=(+($('rental_risk')?.value)||0)/100, scheme=$('rental_scheme')?.value||'full';
+    const sc=computeStreamCosts(); const units=sc.rentalUnits||0;
+    let maintByKey={};
+    if(typeof maintCompute==='function'){ const mUsd=+($('m_usd')?.value)||usd;
+      maintCompute().rows.forEach(rr=>{ const k=rr.e.cat+'|'+(rr.e.merk||'')+'|'+(rr.e.model||''); maintByKey[k]=(maintByKey[k]||0)+rr.total_fleet*mUsd; }); }
+    const _oper=(scheme==='operated'||scheme==='full')?(sc.operIDR.rental||0):0;
+    const _shr=(scheme==='full')?((sc.directTagged.rental||0)+(sc.shared.rental||0)):0;
+    const poolPerUnit=units>0?(_oper+_shr)/units:0;
+    const out=[];
+    equip.filter(e=>e.qty>0&&e.price>0&&e.stream==='rental').forEach(e=>{
+      const capex1=e.price*adj, fin1=capex1*(1-dpP), dep1=dpToDep?capex1:fin1;
+      const ownYr1=dep1/Math.max(1,years)+capex1*insP+fin1*finP;
+      const maintYr1=(maintByKey[e.cat+'|'+(e.merk||'')+'|'+(e.model||'')]||0)/e.qty;
+      const hppYr1=(ownYr1+maintYr1+poolPerUnit)*(1+riskP);
+      const hppHr=minHr>0?hppYr1/minHr:0;
+      const rateHr=hppHr*mgn, rateMo=(hppYr1/12)*mgn;
+      out.push({name:(e.cat||'')+': '+(e.model||''), qty:+e.qty||0, minHrMo, hppHr, rateHr, rateMo, subMo:rateMo*(+e.qty||0)});
+    });
+    return {rows:out, minHrMo, scheme, riskP};
+  }catch(err){ return {rows:[],minHrMo:0,scheme:'full',riskP:0}; }
+}
 function cfSetBasis(v){ cfState.basis=(v==='coal'?'coal':(v==='rental'?'rental':'ob')); cfState.flat=null; cfState.rate=null; cfState.prod={}; if(typeof markDirty==='function') markDirty(); cfRender(); }
 function cfSetRateRp(v){ const usd=(window._cfCache&&+window._cfCache.usd)||16500; cfState.rate=(v===''||v==null)?null:((+v||0)/usd); if(typeof markDirty==='function') markDirty(); cfRender(); }
 function cfSetFlat(v){ cfState.flat=(v===''||v==null)?null:(+v||0); cfState.prod={}; if(typeof markDirty==='function') markDirty(); cfRender(); }
