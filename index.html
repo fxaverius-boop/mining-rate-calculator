@@ -1915,9 +1915,16 @@
       if (cat.pm != null) _origSetItem('rc_plant_manpower_v1', JSON.stringify(cat.pm));
       if (cat.maint != null) _origSetItem('rc_maint_v1', JSON.stringify(cat.maint));
       if (cat.mess != null) _origSetItem('rc_mess_rules_v1', JSON.stringify(cat.mess));
+      if (cat.folders != null) _origSetItem('rc_folders_v1', JSON.stringify(cat.folders));      // folder project (grouping)
+      if (cat.pfmap != null) _origSetItem('rc_project_folders_v1', JSON.stringify(cat.pfmap));  // peta project→folder
       _origSetItem('rc_project_history_v1', JSON.stringify(row.history || {}));
       state.lastPulledAt = row.updated_at || null;
     } finally { state.suspend = false; }
+    // Backfill: cloud belum punya folder tapi perangkat ini punya → push sekali (one-time seed).
+    try {
+      var _cat = row.catalogs || {};
+      if (_cat.folders == null && localStorage.getItem('rc_folders_v1')) markDirty();
+    } catch (e) {}
   }
 
   // ---------- push (localStorage -> cloud) ----------
@@ -1949,7 +1956,8 @@
         active: localStorage.getItem('rc_active_project_v1') || '',
         catalogs: {
           sup: lsGet('rc_support_catalog_v1', null), mp: lsGet('rc_mp_catalog_v1', null),
-          pm: lsGet('rc_plant_manpower_v1', null), maint: lsGet('rc_maint_v1', null), mess: lsGet('rc_mess_rules_v1', null)
+          pm: lsGet('rc_plant_manpower_v1', null), maint: lsGet('rc_maint_v1', null), mess: lsGet('rc_mess_rules_v1', null),
+          folders: lsGet('rc_folders_v1', null), pfmap: lsGet('rc_project_folders_v1', null) // folder project (grouping tampilan)
         },
         history: lsGet('rc_project_history_v1', {}),
         updated_by: state.email,
