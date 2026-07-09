@@ -3541,6 +3541,8 @@ function defaultSupport(){
       else if(/mess\s+karyawan/i.test(c.name)) row.autoMess = 'karyawan';
       /* Meals: qty auto = total headcount × 30 hari. Cost = per orang/hari. */
       else if(/^meals?\b/i.test(c.name)) { row.autoMeals = true; row.cat = 'D'; }
+      /* Laundry: qty auto = total headcount × 30 hari. Cost = per orang/hari. */
+      else if(/^laundry\b/i.test(c.name)) { row.autoLaundry = true; }
       return row;
     });
 }
@@ -4797,11 +4799,14 @@ function renderSupport(){
     const customOpt = inCatalog ? '' : `<option value="${s.name.replace(/"/g,'&quot;')}" selected>${s.name} (custom)</option>`;
     const isAutoMess  = !!s.autoMess;
     const isAutoMeals = !!s.autoMeals;
+    const isAutoLaundry = !!s.autoLaundry;
     const isMcuSup    = isMCU(s.name);
-    const isAutoQty   = isAutoMess || isAutoMeals || isMcuSup;
-    const autoUnlockField = isAutoMess ? 'autoMess' : 'autoMeals';
+    const isAutoQty   = isAutoMess || isAutoMeals || isAutoLaundry || isMcuSup;
+    const autoUnlockField = isAutoMess ? 'autoMess' : (isAutoLaundry ? 'autoLaundry' : 'autoMeals');
     const autoTitle = isMcuSup
       ? 'MCU — qty auto = TOTAL HEADCOUNT · biaya 1× per tahun (bukan bulanan)'
+      : isAutoLaundry
+      ? 'Auto: Laundry qty = Total Headcount × 30 hari/bulan. Cost = per orang per hari.'
       : isAutoMeals
       ? 'Auto: Meals qty = Total Headcount × 30 hari/bulan. Cost = per orang per hari.'
       : 'Auto: Mess qty = rooms / kamar per mess. Edit via tombol 🔓 untuk manual.';
@@ -5752,13 +5757,15 @@ function calc(){
   /* Meals qty auto = total headcount × 30 hari (semua pekerja makan).
      Uses manpower totalHC (may not yet be computed here — recompute locally). */
   const _mealsTotalHC = manpower.reduce((s,m)=>s+(mpInc(m)&&!isMCU(m.pos)?(+m.qty||0):0),0);
-  const _mealsQty = _mealsTotalHC * 30;
+  const _mealsQty = _mealsTotalHC * 30;   /* Meals & Laundry: headcount × 30 hari */
   let messChanged = false;
   support.forEach(s=>{
+    /* Tag on-the-fly: baris Laundry baru (belum pernah kena migrasi load) langsung auto. */
+    if(s.autoLaundry===undefined && /^laundry\b/i.test(s.name||'')) s.autoLaundry = true;
     const cur = +s.qty || 0;
     if(s.autoMess==='management' && cur !== _mess.messManagement){ s.qty = _mess.messManagement; messChanged = true; }
     else if(s.autoMess==='karyawan' && cur !== _mess.messKaryawan){ s.qty = _mess.messKaryawan; messChanged = true; }
-    else if(s.autoMeals && cur !== _mealsQty){ s.qty = _mealsQty; messChanged = true; }
+    else if((s.autoMeals || s.autoLaundry) && cur !== _mealsQty){ s.qty = _mealsQty; messChanged = true; }
   });
   if(messChanged) renderSupport();
 
@@ -7254,10 +7261,11 @@ function _applyScenario(d){
   });
   /* Migrate: tag any Mess rows so autoMess rules apply. */
   support.forEach(s=>{
-    if(s.autoMess||s.autoMeals) return;
+    if(s.autoMess||s.autoMeals||s.autoLaundry) return;
     if(/mess\s+management/i.test(s.name||'')) s.autoMess = 'management';
     else if(/mess\s+karyawan/i.test(s.name||'')) s.autoMess = 'karyawan';
     else if(/^meals?\b/i.test(s.name||''))      s.autoMeals = true;
+    else if(/^laundry\b/i.test(s.name||''))     s.autoLaundry = true;
   });
   /* Migrate: backfill s.cat on support rows that don't have one — infer from
      SUP_CAT_MAP lookup, keyword heuristics, or leave blank (→ Uncategorized).
