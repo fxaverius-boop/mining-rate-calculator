@@ -3803,21 +3803,24 @@ function cfCompute(){
   const lag = Math.max(0, cfState.lag|0);
   const totalMonths = N + lag;                            /* + ekor utk revenue ter-lag */
   const upfront = (ma.dpEquip||0) + (ma.capexInfra||0);
-  /* Basis produksi: OB (BCM) / Coal Getting (Ton) — ditarik dari input produksi/tahun tab Calculator. */
-  const basis = cfState.basis==='coal' ? 'coal' : 'ob';
-  const unit  = basis==='coal' ? 'Ton' : 'BCM';
-  const streamAnnual = basis==='coal' ? (+($('prod_coal_ton')?.value)||0) : (+($('prod_ob_bcm')?.value)||0);
-  /* flat/bulan default = produksi stream terpilih ÷ 12; fallback ke produksi total ÷ N kalau stream 0. */
-  const autoFlat = streamAnnual>0 ? streamAnnual/12 : (N>0 ? (cf.prod||0)/N : 0);
-  const effFlat  = (cfState.flat!=null && cfState.flat!=='') ? (+cfState.flat||0) : autoFlat;
-  /* Rate Rekomendasi PER-STREAM dari TCO (computeStreamCosts): OB=$/BCM, Coal Getting=$/Ton — beda tiap stream. */
+  /* Rate & alokasi per-stream dari TCO (computeStreamCosts). */
   let _sc=null; try{ _sc = (typeof computeStreamCosts==='function') ? computeStreamCosts() : null; }catch(e){}
   const mgn = (window.streamRateMargin || +($('margin')?.value) || 1.2);
-  const scRate = (_sc && _sc.rateUSD) ? ((basis==='coal' ? (+_sc.rateUSD.coal_get||0) : (+_sc.rateUSD.ob||0)) * mgn) : 0;
-  const autoRate = scRate>0 ? scRate : (basis==='coal' ? (+cf.rateTon||0) : (+cf.rateBcm||0));
+  /* Basis: OB (BCM) / Coal Getting (Ton) / Rental (Jam — minimal hour). */
+  const basis = (cfState.basis==='coal') ? 'coal' : (cfState.basis==='rental' ? 'rental' : 'ob');
+  const unit  = basis==='coal' ? 'Ton' : (basis==='rental' ? 'Jam' : 'BCM');
+  /* Rental: volume = unit-hours/tahun = jumlah unit rental × jam minimum/bln × 12. */
+  const streamAnnual = basis==='coal' ? (+($('prod_coal_ton')?.value)||0)
+                     : basis==='rental' ? ((_sc && +_sc.rentalUnitHours) || 0)
+                     : (+($('prod_ob_bcm')?.value)||0);
+  /* flat/bulan default = volume stream terpilih ÷ 12; fallback ke produksi total ÷ N kalau stream 0. */
+  const autoFlat = streamAnnual>0 ? streamAnnual/12 : (basis==='rental' ? 0 : (N>0 ? (cf.prod||0)/N : 0));
+  const effFlat  = (cfState.flat!=null && cfState.flat!=='') ? (+cfState.flat||0) : autoFlat;
+  const scRate = (_sc && _sc.rateUSD) ? ((basis==='coal' ? (+_sc.rateUSD.coal_get||0) : basis==='rental' ? (+_sc.rateUSD.rental||0) : (+_sc.rateUSD.ob||0)) * mgn) : 0;
+  const autoRate = scRate>0 ? scRate : (basis==='coal' ? (+cf.rateTon||0) : basis==='rental' ? 0 : (+cf.rateBcm||0));
   const rateUSD  = (cfState.rate!=null && cfState.rate!=='') ? (+cfState.rate||0) : autoRate;
   const usdRp    = +cf.usd || 16500;
-  const rateIDR  = rateUSD * usdRp;                            /* Rp per unit */
+  const rateIDR  = rateUSD * usdRp;                            /* Rp per unit (Rental: Rp/Jam) */
   /* Tenor cicilan alat (tahun) — override tenor pinjaman → hitung ulang cicilan/bln (PMT amortisasi). */
   const defTenorY = ((ma.loanTermMonths||60)/12);
   const tenorY  = (cfState.tenorYears!=null && cfState.tenorYears!=='') ? (+cfState.tenorYears||0) : defTenorY;
@@ -3870,12 +3873,21 @@ function cfRender(){
   html+='<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px">';
   html+='<label class="text-xs" style="color:#a8a29e">Termin pembayaran (bulan)<br><input type="number" min="0" value="'+M.lag+'" onchange="cfSetLag(this.value)" class="num-in mt-1" style="width:90px" title="Kas revenue masuk berapa bulan setelah produksi"></label>';
   html+='<label class="text-xs" style="color:#a8a29e">Cicilan alat (tahun)<br><input type="number" min="1" step="1" value="'+M.tenorY+'" onchange="cfSetTenor(this.value)" class="num-in mt-1" style="width:100px" title="Tenor pinjaman alat. Cicilan/bln dihitung ulang (amortisasi) & hanya berjalan '+M.tenorMo+' bln pertama."></label>';
-  html+='<label class="text-xs" style="color:#a8a29e">Basis Produksi<br><select onchange="cfSetBasis(this.value)" class="num-in mt-1" style="width:160px" title="Produksi ditarik dari perhitungan stream terpilih (produksi/tahun ÷ 12)"><option value="ob"'+(M.basis==='ob'?' selected':'')+'>⛏️ OB (BCM)</option><option value="coal"'+(M.basis==='coal'?' selected':'')+'>🪨 Coal Getting (Ton)</option></select></label>';
-  html+='<label class="text-xs" style="color:#a8a29e">Produksi Bulanan flat ('+M.unit+')<br><input type="number" min="0" value="'+Math.round(M.effFlat)+'" onchange="cfSetFlat(this.value)" class="num-in mt-1" style="width:140px" title="Set SEMUA bulan ke nilai ini (flat). Kosongkan → otomatis dari '+(M.basis==='coal'?'Coal Getting':'OB')+'/tahun ÷ 12."></label>';
-  html+='<label class="text-xs" style="color:#a8a29e">Rate Rekomendasi ($/'+M.unit+')<br><input type="number" step="0.0001" min="0" value="'+M.rateUSD.toFixed(4)+'" onchange="cfSetRate(this.value)" class="num-in mt-1" style="width:130px" title="Rate rekomendasi dari TCO. Revenue = Produksi × Rate. Kosongkan → ikut nilai TCO."></label>';
+  const isRent = M.basis==='rental';
+  const basisName = M.basis==='coal' ? 'Coal Getting' : (isRent ? 'Rental' : 'OB');
+  html+='<label class="text-xs" style="color:#a8a29e">Basis Produksi<br><select onchange="cfSetBasis(this.value)" class="num-in mt-1" style="width:170px" title="Volume ditarik dari perhitungan stream terpilih (per tahun ÷ 12)"><option value="ob"'+(M.basis==='ob'?' selected':'')+'>⛏️ OB (BCM)</option><option value="coal"'+(M.basis==='coal'?' selected':'')+'>🪨 Coal Getting (Ton)</option><option value="rental"'+(isRent?' selected':'')+'>💰 Rental (Jam)</option></select></label>';
+  html+='<label class="text-xs" style="color:#a8a29e">'+(isRent?'Minimal Hour /bulan (Jam)':'Produksi Bulanan flat ('+M.unit+')')+'<br><input type="number" min="0" value="'+Math.round(M.effFlat)+'" onchange="cfSetFlat(this.value)" class="num-in mt-1" style="width:140px" title="'+(isRent?'Total jam sewa minimum per bulan (= jumlah unit rental × jam minimum/unit). Kosongkan → otomatis dari Rental Config.':'Set SEMUA bulan ke nilai ini (flat). Kosongkan → otomatis dari '+basisName+'/tahun ÷ 12.')+'"></label>';
+  if(isRent){
+    html+='<label class="text-xs" style="color:#a8a29e">Harga Sewa Rekomendasi (Rp/Jam)<br><input type="number" step="1000" min="0" value="'+Math.round(M.rateIDR)+'" onchange="cfSetRateRp(this.value)" class="num-in mt-1" style="width:150px" title="Harga sewa rekomendasi dari TCO (HPP rental × margin), satuan Rupiah per jam. Revenue = Jam × Harga Sewa. Kosongkan → ikut nilai TCO."></label>';
+  } else {
+    html+='<label class="text-xs" style="color:#a8a29e">Rate Rekomendasi ($/'+M.unit+')<br><input type="number" step="0.0001" min="0" value="'+M.rateUSD.toFixed(4)+'" onchange="cfSetRate(this.value)" class="num-in mt-1" style="width:130px" title="Rate rekomendasi dari TCO. Revenue = Produksi × Rate. Kosongkan → ikut nilai TCO."></label>';
+  }
   html+='<button class="btn btn-sec" onclick="cfResetProd()" style="padding:5px 10px;font-size:11px" title="Hapus semua edit per-sel → kembali flat">↺ Reset ke flat</button>';
   html+='</div>';
-  html+='<div class="text-xs" style="color:#a8a29e;margin-bottom:12px">Revenue = <b style="color:#fde68a">Produksi × Rate</b> · Rate Rekomendasi TCO (<b>'+(M.basis==='coal'?'Coal Getting':'OB')+'</b>) = <b style="color:#fde68a">$'+M.rateUSD.toFixed(4)+'/'+M.unit+'</b> (≈ Rp '+cfFmtB(M.rateIDR)+'/'+M.unit+') · kas masuk +'+M.lag+' bln · Cicilan alat <b>'+M.tenorY+' th</b> ('+cfFmtB(M.instMo)+'/bln, '+M.tenorMo+' bln) · Biaya tahunan '+cfFmtB(M.annualCost)+'/th (lonjakan tiap 12 bln) · Durasi <b>'+M.N+' bln</b> · Produksi '+cfFmtB(M.streamAnnual)+' '+M.unit+'/th. Sel Produksi bisa diedit satu-satu.</div>';
+  html+='<div class="text-xs" style="color:#a8a29e;margin-bottom:12px">Revenue = <b style="color:#fde68a">'+(isRent?'Jam × Harga Sewa':'Produksi × Rate')+'</b> · '+(isRent
+    ? 'Harga Sewa Rekomendasi TCO = <b style="color:#fde68a">Rp '+Math.round(M.rateIDR).toLocaleString('id-ID')+'/Jam</b> ($'+M.rateUSD.toFixed(4)+'/jam)'
+    : 'Rate Rekomendasi TCO (<b>'+basisName+'</b>) = <b style="color:#fde68a">$'+M.rateUSD.toFixed(4)+'/'+M.unit+'</b> (≈ Rp '+cfFmtB(M.rateIDR)+'/'+M.unit+')')
+    +' · kas masuk +'+M.lag+' bln · Cicilan alat <b>'+M.tenorY+' th</b> ('+cfFmtB(M.instMo)+'/bln, '+M.tenorMo+' bln) · Biaya tahunan '+cfFmtB(M.annualCost)+'/th (lonjakan tiap 12 bln) · Durasi <b>'+M.N+' bln</b> · '+(isRent?'Jam sewa':'Produksi')+' '+cfFmtB(M.streamAnnual)+' '+M.unit+'/th. Sel '+(isRent?'Jam':'Produksi')+' bisa diedit satu-satu.</div>';
   /* ----- KPI ----- */
   html+='<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px">';
   html+=kpi('💰 Kebutuhan Modal Puncak','Rp '+cfFmtB(M.peak),'kas paling negatif','#f87171','Titik kas terdalam (kumulatif) — modal maksimum yang harus disiapkan');
@@ -3893,10 +3905,14 @@ function cfRender(){
   html+='</tr></thead><tbody>';
   const line=(label,vals,color,bold,tip)=>{ let s='<tr>'+thL(label,tip,color,bold); vals.forEach(v=>{ s+='<td style="padding:3px 8px;text-align:right;color:'+(color||'#d4d4d8')+';font-weight:'+(bold?'700':'400')+'">'+v+'</td>'; }); return s+'</tr>'; };
   /* Produksi — editable */
-  let pr='<tr>'+thL('Produksi','Produksi/bulan ('+M.unit+'). Default rata = '+(M.basis==='coal'?'Coal Getting':'OB')+'/tahun ÷ 12. Edit per sel, atau set "Produksi Bulanan flat".','#fbbf24',true);
+  let pr='<tr>'+thL(isRent?'Minimal Hour':'Produksi', isRent
+    ? 'Jam sewa minimum per bulan (= jumlah unit rental × jam minimum/unit). Edit per sel, atau set "Minimal Hour /bulan".'
+    : 'Produksi/bulan ('+M.unit+'). Default rata = '+basisName+'/tahun ÷ 12. Edit per sel, atau set "Produksi Bulanan flat".','#fbbf24',true);
   rows.forEach(r=>{ if(r.t>=1 && r.t<=M.N){ pr+='<td style="padding:2px 4px"><input type="number" value="'+Math.round(r.p)+'" onchange="cfSetProd('+r.t+',this.value)" style="width:74px;background:#0f0b08;color:#fef3c7;border:1px solid #3d342a;border-radius:4px;padding:2px 4px;font-size:10px;text-align:right"></td>'; } else { pr+='<td style="padding:3px 8px;text-align:right;color:#71717a">—</td>'; } });
   html+=pr+'</tr>';
-  html+=line('Revenue', rows.map(r=>r.revenue?cfFmtB(r.revenue):'—'), '#84cc16', false, '= Produksi × Rate ($'+M.rateUSD.toFixed(4)+'/'+M.unit+' × Rp '+M.usdRp+'/$ = Rp '+cfFmtB(M.rateIDR)+'/'+M.unit+'), kas masuk +'+M.lag+' bln.');
+  html+=line('Revenue', rows.map(r=>r.revenue?cfFmtB(r.revenue):'—'), '#84cc16', false, isRent
+    ? '= Jam × Harga Sewa (Rp '+Math.round(M.rateIDR).toLocaleString('id-ID')+'/Jam), kas masuk +'+M.lag+' bln.'
+    : '= Produksi × Rate ($'+M.rateUSD.toFixed(4)+'/'+M.unit+' × Rp '+M.usdRp+'/$ = Rp '+cfFmtB(M.rateIDR)+'/'+M.unit+'), kas masuk +'+M.lag+' bln.');
   html+=line('— CAPEX Awal (M0)', rows.map(r=>r.capex?('('+cfFmtB(r.capex)+')'):'—'), '#38bdf8', false, 'Modal awal di M0 = DP Equipment + CAPEX Infra (dari Modal Awal / tab TCO). Satu kali di awal.');
   html+=line('— Cicilan Alat', rows.map(r=>r.comp.inst?cfFmtB(r.comp.inst):'—'), '#fdba74', false, '= cicilan/bln = CAPEX alat×(1−DP%) diamortisasi selama tenor '+M.tenorY+' th ('+M.tenorMo+' bln); setelah lunas → 0.');
   html+=line('— Manpower (bln)', rows.map(r=>r.comp.sal?cfFmtB(r.comp.sal):'—'), '#22d3ee', false, '= Σ gaji manpower bulanan (tab Calculator → Man Power); porsi item tahunan dikeluarkan ke baris Biaya Tahunan.');
@@ -3926,7 +3942,8 @@ function cfRender(){
 }
 function cfSetLag(v){ cfState.lag=Math.max(0,Math.round(+v||0)); if(typeof markDirty==='function') markDirty(); cfRender(); }
 function cfSetProd(t,v){ if(!cfState.prod) cfState.prod={}; if(v===''||v==null) delete cfState.prod[t]; else cfState.prod[t]=+v||0; if(typeof markDirty==='function') markDirty(); cfRender(); }
-function cfSetBasis(v){ cfState.basis=(v==='coal'?'coal':'ob'); cfState.flat=null; cfState.rate=null; cfState.prod={}; if(typeof markDirty==='function') markDirty(); cfRender(); }
+function cfSetBasis(v){ cfState.basis=(v==='coal'?'coal':(v==='rental'?'rental':'ob')); cfState.flat=null; cfState.rate=null; cfState.prod={}; if(typeof markDirty==='function') markDirty(); cfRender(); }
+function cfSetRateRp(v){ const usd=(window._cfCache&&+window._cfCache.usd)||16500; cfState.rate=(v===''||v==null)?null:((+v||0)/usd); if(typeof markDirty==='function') markDirty(); cfRender(); }
 function cfSetFlat(v){ cfState.flat=(v===''||v==null)?null:(+v||0); cfState.prod={}; if(typeof markDirty==='function') markDirty(); cfRender(); }
 function cfSetRate(v){ cfState.rate=(v===''||v==null)?null:(+v||0); if(typeof markDirty==='function') markDirty(); cfRender(); }
 function cfSetTenor(v){ cfState.tenorYears=(v===''||v==null)?null:Math.max(1,+v||1); if(typeof markDirty==='function') markDirty(); cfRender(); }
@@ -5901,6 +5918,14 @@ function calc(){
   const riskPct    = (+($('rental_risk')?.value) || 0) / 100;
   const dpPct      = (+($('rental_dp')?.value)   || 0) / 100;
   const dpToDep    = ($('rental_dp_to_dep')?.checked !== false);
+  /* UX: dengan DP 0%, DepBase CAPEX = Financed → toggle tak berpengaruh. Nonaktifkan + jelaskan. */
+  { const _cb=$('rental_dp_to_dep');
+    if(_cb){ _cb.disabled = dpPct<=0;
+      const _lbl=_cb.closest('label')||_cb.parentElement;
+      if(_lbl){ _lbl.style.opacity = dpPct<=0 ? .45 : 1;
+        _lbl.title = dpPct<=0
+          ? 'Isi DP % > 0 dulu — dengan DP 0%, basis depresiasi (CAPEX vs Financed) sama besar sehingga toggle ini tidak berpengaruh.'
+          : 'ON: DP ikut depresiasi (full CAPEX di-amortisasi). OFF: hanya financed yang depresiasi, DP jadi sunk cost owner.'; } } }
   const rentalScheme = $('rental_scheme')?.value || 'full';
   const equipCapex = eqTotal;     /* nilai CAPEX alat berat saja, sudah × adj */
   const _financedCapex = equipCapex * (1 - dpPct);
@@ -7241,7 +7266,7 @@ function _applyScenario(d){
   if(Array.isArray(d.manpower)) manpower = d.manpower;
   cfState = (d.cashflow && typeof d.cashflow==='object')
     ? {lag:(d.cashflow.lag!=null?+d.cashflow.lag:1), prod:(d.cashflow.prod&&typeof d.cashflow.prod==='object')?d.cashflow.prod:{},
-       basis:(d.cashflow.basis==='coal'?'coal':'ob'), flat:(d.cashflow.flat!=null?d.cashflow.flat:null), rate:(d.cashflow.rate!=null?d.cashflow.rate:null), tenorYears:(d.cashflow.tenorYears!=null?d.cashflow.tenorYears:null)}
+       basis:(d.cashflow.basis==='coal'?'coal':(d.cashflow.basis==='rental'?'rental':'ob')), flat:(d.cashflow.flat!=null?d.cashflow.flat:null), rate:(d.cashflow.rate!=null?d.cashflow.rate:null), tenorYears:(d.cashflow.tenorYears!=null?d.cashflow.tenorYears:null)}
     : {lag:1, prod:{}, basis:'ob', flat:null, rate:null, tenorYears:null};
   { const fx=(d.cashflow&&d.cashflow.finx)||{}; cfxState={disc:(fx.disc!=null?+fx.disc:10), tax:(fx.tax!=null?+fx.tax:22), bpjs:(fx.bpjs!=null?+fx.bpjs:11)}; }
   /* Migrate: ensure Operator row has auto flag (ratio × total unit) and
