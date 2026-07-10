@@ -367,6 +367,7 @@
         <option value="rental_day">💰 Rental · per Unit/Day</option>
         <option value="rental_mo">💰 Rental · per Unit/Month</option>
       </select>
+      <button id="ab_btn" onclick="document.querySelector('[data-tab=gen]').click()" class="btn-sec" title="Generator Budget: target produksi + jarak + fleet → seluruh budget terisi otomatis dalam 4 kombinasi tier alat" style="padding:4px 9px;font-size:11px;font-weight:800;color:#fbbf24;border-color:#78350f">🏗️ Generator</button>
       <div class="flex gap-1 items-center" style="padding:4px 8px;background:#14110e;border:1px solid #78350f;border-radius:8px">
         <span class="text-[10px]" style="color:#fbbf24;font-weight:700;letter-spacing:.5px">PROJECT</span>
         <div style="position:relative;display:inline-block">
@@ -415,9 +416,11 @@
       <button class="tab-btn active" data-tab="results">📈 Results &amp; Analytics</button>
       <button class="tab-btn" data-tab="tco">🧮 TCO Structure By McKinsey</button>
       <button class="tab-btn" data-tab="sens">🎯 Sensitivity Analysis</button>
+      <button class="tab-btn" data-tab="feas">⚖️ Uji Kelayakan</button>
       <div class="sidebar-section">Input &amp; Perhitungan</div>
       <button class="tab-btn" data-tab="calc">📊 Calculator</button>
       <button class="tab-btn" data-tab="prodcalc">🏭 Calculator Produksi</button>
+      <button class="tab-btn" data-tab="gen">🏗️ Generator Budget</button>
       <button class="tab-btn" data-tab="plant">🔧 Plant Manpower</button>
       <button class="tab-btn" data-tab="org">🏢 Struktur Organisasi</button>
       <button class="tab-btn" data-tab="maint">💰 Maintenance Cost</button>
@@ -437,6 +440,20 @@
     <div class="h-section">💵 Project Cashflow (Bulanan)</div>
     <div class="text-xs mb-3" style="color:#a8a29e">Proyeksi kas bulanan M0…Mn — Revenue (produksi × Rate Rekomendasi, kas masuk sesuai termin) dikurangi Capex awal + Opex bulanan (ditarik dari data project). Menampilkan kebutuhan modal puncak & titik balik modal.</div>
     <div id="cf_body"></div>
+  </div>
+
+  <!-- ============ TAB: GENERATOR BUDGET (target+jarak+fleet → 4 kombinasi tier) ============ -->
+  <div id="tab-gen" class="tab-panel">
+    <div class="h-section">🏗️ Generator Budget — OB & Coal Getting</div>
+    <div class="text-xs mb-3" style="color:#a8a29e">Masukkan <b>target produksi</b>, <b>jarak</b>, dan <b>ekspektasi fleet</b> → generator menyusun seluruh budget (fleet, alat support, manpower, facilities) dalam <b>4 kombinasi tier alat</b> (Tier 1 · Tier 2 · Mix · New+Used), masing-masing jadi project variant dalam satu folder. Semua aturan bisa diubah di panel Rules.</div>
+    <div id="gen_body"></div>
+  </div>
+
+  <!-- ============ TAB: UJI KELAYAKAN (scorecard 4 uji) ============ -->
+  <div id="tab-feas" class="tab-panel">
+    <div class="h-section">⚖️ Uji Kelayakan Budget</div>
+    <div class="text-xs mb-3" style="color:#a8a29e">Sidang kelayakan project aktif — 4 uji: <b>Rate vs Pasar</b>, <b>Profitabilitas</b> (margin·NPV·IRR), <b>Kewajaran Komposisi</b> (vs kebiasaan historis), dan <b>Modal &amp; Cashflow</b>. Setiap lampu merah menunjuk lever yang perlu disesuaikan.</div>
+    <div id="feas_body"></div>
   </div>
 
   <!-- ============ TAB: ANALISIS NPV/IRR (per stream) ============ -->
@@ -1836,7 +1853,8 @@
   var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJkYWZ4YmhremRxeGt4c2Zvb21yIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3NDM3NjcsImV4cCI6MjA5NzMxOTc2N30.C7OFhXNpRlaj9n05UFuQYehz0IUE3rqTs4SNi1tYKsQ';
   var SYNC_KEYS = ['rc_projects_v1', 'rc_active_project_v1', 'rc_support_catalog_v1', 'rc_mp_catalog_v1', 'rc_project_history_v1',
     'rc_plant_manpower_v1', 'rc_maint_v1', 'rc_mess_rules_v1', // katalog global yang memengaruhi perhitungan TCO
-    'rc_folders_v1', 'rc_project_folders_v1']; // folder project (grouping tampilan, sync tim)
+    'rc_folders_v1', 'rc_project_folders_v1', // folder project (grouping tampilan, sync tim)
+    'rc_feas_v1', 'rc_gen_rules_v1']; // settings Uji Kelayakan + rules Generator Budget (sync tim)
   var DEBOUNCE_MS = 1500;
 
   // Jalankan fn saat DOM siap; jika sudah lewat, jalankan sekarang.
@@ -1917,13 +1935,17 @@
       if (cat.mess != null) _origSetItem('rc_mess_rules_v1', JSON.stringify(cat.mess));
       if (cat.folders != null) _origSetItem('rc_folders_v1', JSON.stringify(cat.folders));      // folder project (grouping)
       if (cat.pfmap != null) _origSetItem('rc_project_folders_v1', JSON.stringify(cat.pfmap));  // peta project→folder
+      if (cat.feas != null) _origSetItem('rc_feas_v1', JSON.stringify(cat.feas));               // settings Uji Kelayakan
+      if (cat.genrules != null) _origSetItem('rc_gen_rules_v1', JSON.stringify(cat.genrules));  // rules Generator Budget
       _origSetItem('rc_project_history_v1', JSON.stringify(row.history || {}));
       state.lastPulledAt = row.updated_at || null;
     } finally { state.suspend = false; }
     // Backfill: cloud belum punya folder tapi perangkat ini punya → push sekali (one-time seed).
     try {
       var _cat = row.catalogs || {};
-      if (_cat.folders == null && localStorage.getItem('rc_folders_v1')) markDirty();
+      if ((_cat.folders == null && localStorage.getItem('rc_folders_v1'))
+        || (_cat.feas == null && localStorage.getItem('rc_feas_v1'))
+        || (_cat.genrules == null && localStorage.getItem('rc_gen_rules_v1'))) markDirty();
     } catch (e) {}
   }
 
@@ -1962,7 +1984,8 @@
         catalogs: {
           sup: lsGet('rc_support_catalog_v1', null), mp: lsGet('rc_mp_catalog_v1', null),
           pm: lsGet('rc_plant_manpower_v1', null), maint: lsGet('rc_maint_v1', null), mess: lsGet('rc_mess_rules_v1', null),
-          folders: lsGet('rc_folders_v1', null), pfmap: lsGet('rc_project_folders_v1', null) // folder project (grouping tampilan)
+          folders: lsGet('rc_folders_v1', null), pfmap: lsGet('rc_project_folders_v1', null), // folder project (grouping tampilan)
+          feas: lsGet('rc_feas_v1', null), genrules: lsGet('rc_gen_rules_v1', null) // settings Uji Kelayakan + rules Generator
         },
         history: lsGet('rc_project_history_v1', {}),
         updated_by: state.email,
@@ -3778,6 +3801,8 @@ document.querySelectorAll('.tab-btn[data-tab]').forEach(b=>{
     if(b.dataset.tab==='prodcalc'){ prodCalcRender(); }
     if(b.dataset.tab==='cashflow'){ cfRender(); }
     if(b.dataset.tab==='finx'){ cfxRender(); }
+    if(b.dataset.tab==='feas'){ feasRender(); }
+    if(b.dataset.tab==='gen'){ genRender(); }
     /* Lazy-load the EV simulator iframe on first visit — avoids loading the
        React/Babel runtime (~200KB) for users who never open this tab. */
     if(b.dataset.tab==='ev-sim'){
@@ -4137,6 +4162,530 @@ function cfxRender(){
   }catch(e){ console.warn('cfx chart',e); }
 }
 function cfxSet(k,v){ cfxState[k]=(v===''||v==null)?0:(+v||0); if(typeof markDirty==='function') markDirty(); cfxRender(); }
+
+/* ================================================================
+   ⚖️ UJI KELAYAKAN — sidang kelayakan project aktif, 4 uji:
+   1. Rate vs Pasar (benchmark katalog + override per project)
+   2. Profitabilitas (margin % · NPV · IRR — ambang diatur user)
+   3. Kewajaran Komposisi opex (vs rentang p25–p75 kebiasaan historis)
+   4. Modal & Cashflow (kebutuhan modal puncak ≤ plafon)
+   Setiap lampu merah menunjuk lever perbaikan. Settings di rc_feas_v1
+   (LOKAL dulu — wiring sync tim menyusul saat deploy, ingat pelajaran
+   folders: SYNC_KEYS saja tidak cukup, push+hydrate harus ikut).
+   ================================================================ */
+const LS_FEAS='rc_feas_v1';
+/* Rentang komposisi wajar (% dari opex bulanan), p25–p75 diekstrak 2026-07 dari
+   22 project historis (per kelompok archetype; TANPA nama project — repo publik).
+   Regenerate: apply tiap scenario → computeModalAwal → kuartil share. */
+const FEAS_COMP_BASELINE={
+  mining:{n:15, inst:[20.4,42.4], sal:[22.6,28.4], maint:[19.1,29.0], sup:[9.2,12.4], akom:[1.3,2.7]},
+  haul:  {n:3,  inst:[31.1,33.3], sal:[12.8,17.6], maint:[26.8,39.5], sup:[12.6,17.8], akom:[3.6,4.5]},
+  rental:{n:4,  inst:[2.3,17.7],  sal:[3.0,5.2],   maint:[3.8,20.2],  sup:[55.0,89.5], akom:[0.3,0.5]}
+};
+const FEAS_COMP_LABEL={inst:'Cicilan alat', sal:'Gaji manpower', maint:'Maintenance', sup:'Support', akom:'Akomodasi'};
+function feasCfg(){
+  let c={};
+  try{ c=JSON.parse(localStorage.getItem(LS_FEAS)||'{}')||{}; }catch(e){ c={}; }
+  return Object.assign({bench:{}, tol:10, marginMin:15, irrMin:12, capMax:'', ov:{}}, c);
+}
+function feasSave(c){ try{ localStorage.setItem(LS_FEAS, JSON.stringify(c)); }catch(e){} }
+function feasSet(k,v){
+  const c=feasCfg();
+  if(k==='bench_ob'||k==='bench_coal'||k==='bench_rental'){ c.bench[k.slice(6)]=(v===''?'':+v||0); }
+  else if(k==='ov'){ const p=getActiveProject(); if(v===''){ delete c.ov[p]; } else c.ov[p]=+v||0; }
+  else { c[k]=(v===''?'':+v||0); }
+  feasSave(c); feasRender();
+}
+/* Kelompok baseline komposisi utk preset aktif. */
+function feasGroup(preset){ return String(preset||'').indexOf('rental')===0 ? 'rental' : (preset==='haul' ? 'haul' : 'mining'); }
+function feasCompute(){
+  if(typeof calc==='function'){ try{ calc(); }catch(e){} }
+  if(cfState.basis==='rental' && typeof tcoRender==='function'){ try{ tcoRender(); }catch(e){} }
+  const M=cfCompute();
+  const cfg=feasCfg();
+  const proj=getActiveProject();
+  const isRent=M.basis==='rental';
+  /* --- Uji 1: Rate vs Pasar --- */
+  const rate = isRent ? M.rateIDR : M.rateUSD;                     /* rental: Rp/jam, lain: $/unit */
+  const benchKey = isRent ? 'rental' : M.basis;                    /* ob | coal | rental */
+  const benchCat = (cfg.bench[benchKey]!=null && cfg.bench[benchKey]!=='') ? +cfg.bench[benchKey] : null;
+  const benchOv  = (cfg.ov && cfg.ov[proj]!=null) ? +cfg.ov[proj] : null;
+  const bench = (benchOv!=null) ? benchOv : benchCat;
+  let u1={key:'rate', title:'1 · Rate vs Pasar', state:'abu', main:'—', lines:[], saran:''};
+  const rateTxt = isRent ? 'Rp '+Math.round(rate).toLocaleString('id-ID')+'/Jam' : '$'+(+rate).toFixed(4)+'/'+M.unit;
+  u1.main=rateTxt;
+  if(bench==null){
+    u1.lines.push('Benchmark pasar belum diisi — isi di Settings di atas (katalog atau override project ini).');
+  } else {
+    const diff=(rate-bench)/bench*100;
+    const benchTxt = isRent ? 'Rp '+Math.round(bench).toLocaleString('id-ID') : '$'+(+bench).toFixed(4);
+    u1.lines.push('Pasar: '+benchTxt+(benchOv!=null?' (override project ini)':' (katalog)')+' · selisih '+(diff>=0?'+':'')+diff.toFixed(1)+'%');
+    if(diff<=0){ u1.state='hijau'; if(diff < -cfg.tol) u1.lines.push('💡 Rate '+(-diff).toFixed(1)+'% di bawah pasar — ada ruang menaikkan margin.'); }
+    else if(diff<=cfg.tol){ u1.state='kuning'; u1.saran='Rate sedikit di atas pasar (toleransi '+cfg.tol+'%). Pertimbangkan menurunkan Margin Rate di tab Cashflow, atau cek komponen biaya terbesar.'; }
+    else { u1.state='merah'; }
+  }
+  /* --- Uji 2: Profitabilitas --- */
+  const cash=M.rows.map(r=>r.margin);
+  const irrM=cfxIRR(cash);
+  const irrY=(irrM!=null)?(Math.pow(1+irrM,12)-1)*100:null;
+  const npv=cfxNPV(cash, ((+cfxState.disc||0)/100)/12);
+  const pMargin=M.marginPct, pass2=[];
+  pass2.push({ok:pMargin>=cfg.marginMin, txt:'Margin '+pMargin.toFixed(1)+'% (min '+cfg.marginMin+'%)'});
+  pass2.push({ok:npv>0, txt:'NPV Rp '+cfFmtB(npv)+' (disc '+(+cfxState.disc||0)+'%/th)'});
+  pass2.push({ok:irrY!=null&&irrY>=cfg.irrMin, txt:'IRR '+(irrY!=null?irrY.toFixed(1)+'%':'—')+'/th (min '+cfg.irrMin+'%)'});
+  const okN=pass2.filter(p=>p.ok).length;
+  let u2={key:'profit', title:'2 · Profitabilitas', state:(okN===3?'hijau':(okN===2?'kuning':'merah')),
+    main:pMargin.toFixed(1)+'% margin', lines:pass2.map(p=>(p.ok?'✅ ':'❌ ')+p.txt), saran:''};
+  if(u2.state!=='hijau') u2.saran='Naikkan Margin Rate, panjangkan tenor cicilan (tab Cashflow), atau turunkan biaya komponen yang ditandai Uji 3.';
+  /* --- Uji 3: Kewajaran Komposisi opex --- */
+  const ma=M.ma;
+  const tot=(ma.installmentMo||0)+(ma.moSalary||0)+(ma.moMaint||0)+(ma.moSupport||0)+(ma.moAkom||0);
+  const grp=feasGroup($('preset')?.value);
+  const base=FEAS_COMP_BASELINE[grp];
+  let u3={key:'comp', title:'3 · Kewajaran Komposisi', state:'abu', main:grp, lines:[], saran:''};
+  if(tot>0){
+    const shares={inst:(ma.installmentMo||0)/tot*100, sal:(ma.moSalary||0)/tot*100, maint:(ma.moMaint||0)/tot*100, sup:(ma.moSupport||0)/tot*100, akom:(ma.moAkom||0)/tot*100};
+    const outliers=[];
+    Object.keys(shares).forEach(k=>{
+      const [lo,hi]=base[k]; const pad=Math.max(3,(hi-lo)*0.25);   /* longgar: rentang + 25% lebar (min 3pt) */
+      const v=shares[k]; const out=(v<lo-pad || v>hi+pad);
+      if(out) outliers.push({k,v,lo,hi});
+      u3.lines.push((out?'⚠️ ':'✅ ')+FEAS_COMP_LABEL[k]+': '+v.toFixed(1)+'% (wajar '+lo+'–'+hi+'%)');
+    });
+    u3.state = outliers.length===0 ? 'hijau' : (outliers.length===1 ? 'kuning' : 'merah');
+    u3.main = outliers.length===0 ? 'Semua wajar' : outliers.length+' komponen di luar kebiasaan';
+    if(outliers.length) u3.saran='Cek input '+outliers.map(o=>FEAS_COMP_LABEL[o.k]+' ('+o.v.toFixed(1)+'% vs wajar '+o.lo+'–'+o.hi+'%)').join(', ')+' — komposisi aneh biasanya berarti ada input salah.';
+    if(base.n<8) u3.lines.push('ℹ️ Baseline '+grp+' dari '+base.n+' project — sampel kecil, jadikan indikasi saja.');
+  } else u3.lines.push('Opex bulanan masih 0 — lengkapi data Calculator dulu.');
+  /* --- Uji 4: Modal & Cashflow --- */
+  const capMax=(cfg.capMax!==''&&cfg.capMax!=null)?(+cfg.capMax*1e9):null;  /* input dalam Miliar Rp */
+  let u4={key:'modal', title:'4 · Modal & Cashflow', state:'abu', main:'Rp '+cfFmtB(M.peak), lines:[], saran:''};
+  u4.lines.push('Kebutuhan modal puncak: Rp '+cfFmtB(M.peak)+(M.breakEven!=null?' · balik modal M'+M.breakEven:' · belum balik modal dalam durasi'));
+  if(capMax==null){ u4.lines.push('Plafon modal belum diisi — isi di Settings.'); }
+  else {
+    u4.lines.push('Plafon: Rp '+cfFmtB(capMax));
+    if(M.peak<=capMax) u4.state='hijau';
+    else if(M.peak<=capMax*1.1){ u4.state='kuning'; u4.saran='Modal puncak sedikit melampaui plafon. Naikkan DP%/ubah tenor, atau geser termin pembayaran.'; }
+    else { u4.state='merah'; u4.saran='Modal puncak jauh di atas plafon ('+((M.peak/capMax-1)*100).toFixed(0)+'% lebih). Kurangi CAPEX awal (DP, infra), perpanjang tenor, atau nego termin lebih cepat.'; }
+  }
+  if(u1.state==='merah'&&!u1.saran){
+    /* tunjuk komponen opex terbesar sebagai tersangka utama */
+    let big=null; if(tot>0){ const s={inst:ma.installmentMo||0,sal:ma.moSalary||0,maint:ma.moMaint||0,sup:ma.moSupport||0,akom:ma.moAkom||0}; big=Object.keys(s).sort((a,b)=>s[b]-s[a])[0]; }
+    u1.saran='Rate di atas pasar melebihi toleransi. Komponen terbesar: '+(big?FEAS_COMP_LABEL[big]:'—')+' — tekan biaya itu, atau turunkan Margin Rate bila masih profitable (lihat Uji 2).';
+  }
+  /* --- Vonis keseluruhan --- */
+  const tests=[u1,u2,u3,u4];
+  const nMerah=tests.filter(t=>t.state==='merah').length;
+  const nKuning=tests.filter(t=>t.state==='kuning').length;
+  const nAbu=tests.filter(t=>t.state==='abu').length;
+  let verdict, vColor;
+  if(nMerah>0){ verdict='❌ TIDAK LAYAK — '+nMerah+' uji merah'; vColor='#f87171'; }
+  else if(nKuning>0){ verdict='⚠️ LAYAK DENGAN CATATAN — '+nKuning+' uji kuning'; vColor='#fbbf24'; }
+  else if(nAbu===4){ verdict='◌ BELUM DINILAI — lengkapi Settings'; vColor='#a8a29e'; }
+  else { verdict='✅ LAYAK'+(nAbu?' (sebagian uji belum lengkap)':''); vColor='#84cc16'; }
+  return {tests,verdict,vColor,M,cfg,proj,isRent,benchKey,benchCat,benchOv,bench};
+}
+function feasRender(){
+  const host=$('feas_body'); if(!host) return;
+  const F=feasCompute(), cfg=F.cfg;
+  const lamp={hijau:'🟢',kuning:'🟡',merah:'🔴',abu:'⚪'};
+  const col={hijau:'#84cc16',kuning:'#fbbf24',merah:'#f87171',abu:'#a8a29e'};
+  const inp=(id,label,val,step,w,tip)=>'<label class="text-xs" style="color:#a8a29e">'+label+'<br><input type="number" step="'+step+'" value="'+(val==null?'':val)+'" onchange="feasSet(\''+id+'\',this.value)" class="num-in mt-1" style="width:'+w+'px" title="'+tip+'" placeholder="—"></label>';
+  let h='';
+  /* Vonis */
+  h+='<div style="background:#14110e;border:1px solid #3d342a;border-left:4px solid '+F.vColor+';border-radius:10px;padding:14px 16px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">';
+  h+='<div><div style="font-size:16px;font-weight:800;color:'+F.vColor+'">'+F.verdict+'</div>';
+  h+='<div class="text-xs" style="color:#a8a29e;margin-top:4px">Project: <b style="color:#fde68a">'+F.proj+'</b> · basis '+(F.isRent?'Rental':F.M.basis.toUpperCase())+' · margin '+F.M.mgn.toFixed(2)+'×</div></div>';
+  h+='<button class="btn btn-sec" onclick="feasRender()" style="padding:5px 12px;font-size:11px">↻ Hitung ulang</button></div>';
+  /* Settings */
+  h+='<div style="background:#14110e;border:1px solid #3d342a;border-radius:10px;padding:12px;margin-bottom:14px">';
+  h+='<div style="font-size:11px;font-weight:800;letter-spacing:.6px;color:#fbbf24;margin-bottom:8px">⚙️ SETTINGS — BENCHMARK & AMBANG (berlaku semua project)</div>';
+  h+='<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end">';
+  h+=inp('bench_ob','Pasar OB ($/BCM)',cfg.bench.ob,'0.01',110,'Rate pasar/kompetitor untuk OB. Katalog default semua project.');
+  h+=inp('bench_coal','Pasar Coal ($/Ton)',cfg.bench.coal,'0.01',110,'Rate pasar untuk Coal Getting.');
+  h+=inp('bench_rental','Pasar Sewa (Rp/Jam)',cfg.bench.rental,'1000',130,'Harga sewa pasar per jam (blended).');
+  h+=inp('tol','Toleransi (%)',cfg.tol,'1',80,'Berapa % di atas pasar masih bisa dinego (kuning).');
+  h+=inp('marginMin','Margin min (%)',cfg.marginMin,'1',90,'Net margin minimum agar dianggap layak.');
+  h+=inp('irrMin','IRR min (%/th)',cfg.irrMin,'1',90,'IRR tahunan minimum (bandingkan bunga pinjaman).');
+  h+=inp('capMax','Plafon modal (Rp Miliar)',cfg.capMax,'0.5',130,'Kemampuan pendanaan maksimum untuk modal puncak.');
+  h+=inp('ov','Override pasar project INI',F.benchOv,'0.01',130,'Kosongkan → pakai katalog. Satuan mengikuti basis project ('+(F.isRent?'Rp/Jam':'$/unit')+').');
+  h+='</div></div>';
+  /* 4 kartu uji */
+  h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px">';
+  F.tests.forEach(t=>{
+    h+='<div style="background:linear-gradient(160deg,#1a1410,#14110e);border:1px solid #3d342a;border-top:3px solid '+col[t.state]+';border-radius:10px;padding:12px">';
+    h+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><div style="font-size:12px;font-weight:800;color:#fde68a">'+t.title+'</div><div style="font-size:16px">'+lamp[t.state]+'</div></div>';
+    h+='<div style="font-size:15px;font-weight:800;color:'+col[t.state]+';margin-bottom:6px">'+t.main+'</div>';
+    t.lines.forEach(l=>{ h+='<div class="text-xs" style="color:#a8a29e;margin-top:3px">'+l+'</div>'; });
+    if(t.saran) h+='<div class="text-xs" style="color:#fdba74;margin-top:8px;border-top:1px dashed #3d342a;padding-top:6px">🔧 '+t.saran+'</div>';
+    h+='</div>';
+  });
+  h+='</div>';
+  h+='<div class="text-xs" style="color:#78716c;margin-top:12px">Rentang "wajar" Uji 3 = kuartil p25–p75 komposisi opex dari project historis (kelompok: mining/haul/rental) + kelonggaran. Settings tersimpan lokal (rc_feas_v1).</div>';
+  host.innerHTML=h;
+}
+
+/* ================================================================
+   🏗️ GENERATOR BUDGET — dari (target produksi + jarak + ekspektasi fleet)
+   menyusun SELURUH budget otomatis dalam 4 kombinasi tier alat:
+   Tier 1 (CAT/Komatsu/dkk) · Tier 2 (China/Korea) · Mix · New+Used.
+   Tiap kombinasi = project variant dlm 1 folder. Semua ATURAN editable
+   (rc_gen_rules_v1). Harga: anchor riil dari data historis bila ada,
+   sisanya parametrik (Tier2 = rasio × Tier1) — nanti diganti database
+   lengkap user. v1: OB & Coal Getting.
+   ================================================================ */
+const LS_GENRULES='rc_gen_rules_v1';
+const GEN_RULES_DEF={
+  tier:{ t2Price:0.62, t2PaDelta:3, t2MaintAdd:15, usedPrice:0.55, usedPaDelta:5, usedMaintAdd:25 },
+  match:{ pa:0.85, ua:0.55, passMin:4, passMax:6, prep:60, fillEff:0.9, vEff:0.9, spot:180 },
+  coal:{ density:1.3 },
+  sup:{ dozerPerFleet:1, kmPerGrader:2, kmPerWT:3, kmPerVibro:3, lubePerUnits:15, lvBase:2, lvPerFleet:1, lampPerFleet:2, ftPerSite:1 },
+  mp:{ unitsPerMech:4, shifts:2, spvPerFleetShift:1 }
+};
+function genRules(){
+  let s={}; try{ s=JSON.parse(localStorage.getItem(LS_GENRULES)||'{}')||{}; }catch(e){ s={}; }
+  const out={};
+  Object.keys(GEN_RULES_DEF).forEach(sec=>{ out[sec]=Object.assign({}, GEN_RULES_DEF[sec], s[sec]||{}); });
+  return out;
+}
+function genSetRule(path,v){
+  const [sec,key]=path.split('.');
+  let s={}; try{ s=JSON.parse(localStorage.getItem(LS_GENRULES)||'{}')||{}; }catch(e){ s={}; }
+  if(!s[sec]) s[sec]={};
+  s[sec][key]=(v===''?GEN_RULES_DEF[sec][key]:(+v||0));
+  try{ localStorage.setItem(LS_GENRULES, JSON.stringify(s)); }catch(e){}
+  genRender();
+}
+/* Katalog kelas alat. price:null = parametrik (T1 × rasio). Anchor riil dari
+   median harga project historis ditandai src. Bucket/ct per tier = trade-off nyata. */
+const GEN_CLASSES={
+  exca:[
+    {id:'exca50', label:'Excavator ~50 ton', cat:'Excavator',
+     t1:{merk:'Komatsu', model:'PC500LC-10 (PC500 class)', price:4400000000, bucket:3.0, ct:31.2},
+     t2:{merk:'XCMG', model:'XE490DK', price:null, bucket:2.5, ct:30},
+     dt:{cat:'Dump Truck',
+       t1:{merk:'Hino', model:'700 ZS 4141 (SS)', price:3500000000, vessel:18, ve:45, vl:35},
+       t2:{merk:'Shacman', model:'F3000 6x4', price:1990000000, vessel:16, ve:40, vl:30}}},
+    {id:'exca125', label:'Excavator ~125 ton', cat:'Excavator',
+     t1:{merk:'Komatsu', model:'PC1250-8', price:15000000000, bucket:6.7, ct:35},
+     t2:{merk:'Zoomlion', model:'ZE1250E', price:null, bucket:6.7, ct:36},
+     dt:{cat:'Dump Truck',
+       t1:{merk:'Komatsu', model:'HD465-8', price:null, vessel:36, ve:40, vl:28, notInHaulerDb:true},
+       t2:{merk:'Tonly', model:'DTH145 Hybrid Mining', price:7200000000, vessel:40, ve:40, vl:28, notInHaulerDb:true}}}
+  ],
+  support:[
+    {key:'dozer', cat:'Bulldozer', label:'Dozer',
+     t1:{merk:'Komatsu',model:'D85ESS-3',price:2500000000}, t2:{merk:'Shantui',model:'SD22',price:null}},
+    {key:'grader', cat:'Motor Grader', label:'Grader',
+     t1:{merk:'Komatsu',model:'GD605-5',price:2500000000}, t2:{merk:'XCMG',model:'GR215',price:null}},
+    {key:'vibro', cat:'Vibro Roller', label:'Vibro Roller',
+     t1:{merk:'Dynapac',model:'CA2500D',price:2200000000}, t2:{merk:'Shantui',model:'SR22',price:null}},
+    {key:'wt', cat:'Water Truck', label:'Water Truck',
+     t1:{merk:'Hino',model:'FM 260 JD WT 16KL',price:1500000000}, t2:{merk:'Shacman',model:'F3000 WT 20KL',price:1500000000}},
+    {key:'ft', cat:'Fuel Truck', label:'Fuel Truck',
+     t1:{merk:'Hino',model:'FM 260 JD FT 16KL',price:1500000000}, t2:{merk:'Shacman',model:'F3000 FT 20KL',price:1500000000}},
+    {key:'lube', cat:'Lube Truck', label:'Lube Truck',
+     t1:{merk:'Hino',model:'FM 260 JD LT',price:1500000000}, t2:{merk:'Shacman',model:'F3000 LT',price:1500000000}},
+    {key:'lv', cat:'Light Vehicle', label:'LV (Hilux)',
+     t1:{merk:'Toyota',model:'Hilux Double Cabin 4x4',price:500000000}, t2:{merk:'Toyota',model:'Hilux Double Cabin 4x4',price:500000000}},
+    {key:'lamp', cat:'Tower Lamp', label:'Tower Lamp',
+     t1:{merk:'Generic',model:'Tower Lamp 9kVA',price:180000000}, t2:{merk:'Generic',model:'Tower Lamp 9kVA',price:180000000}}
+  ]
+};
+const GEN_COMBOS=[
+  {id:'t1',      label:'Tier 1',      prodTier:'t1', supTier:'t1', used:false, desc:'Semua alat merek premium (Komatsu/Hino/dkk)'},
+  {id:'t2',      label:'Tier 2',      prodTier:'t2', supTier:'t2', used:false, desc:'Semua alat China/Korea — capex rendah, PA & maint disesuaikan'},
+  {id:'mix',     label:'Mix T1+T2',   prodTier:'t1', supTier:'t2', used:false, desc:'Alat produksi Tier 1, alat support Tier 2'},
+  {id:'newused', label:'New + Used',  prodTier:'t1', supTier:'t2', used:true,  desc:'Produksi baru Tier 1, support Tier 2 BEKAS'}
+];
+let genState={ arch:'ob', tmode:'yearly', tval:8000000, years:3, dist:3, fleets:5, base:'Site Baru',
+  combos:{t1:true,t2:true,mix:true,newused:true} };
+function genSetState(k,v){
+  if(k.indexOf('combo_')===0){ genState.combos[k.slice(6)]=!!v; }
+  else if(k==='arch'||k==='tmode'||k==='base'){ genState[k]=v; }
+  else genState[k]=+v||0;
+  genRender();
+}
+function genPrice(def,tier,used,R){
+  /* Parametrik DUA ARAH: T2 kosong → T1×rasio; T1 kosong → T2÷rasio. */
+  let t1p=def.t1?def.t1.price:null, t2p=def.t2?def.t2.price:null;
+  const r=R.tier.t2Price||0.62;
+  if(t1p==null && t2p!=null) t1p=t2p/r;
+  if(t2p==null && t1p!=null) t2p=t1p*r;
+  let p=(tier==='t2')?t2p:t1p;
+  if(p==null||!isFinite(p)) p=0;
+  if(used) p=p*R.tier.usedPrice;
+  return Math.round(p);
+}
+/* Rencana fleet utk satu tier produksi. Target → kelas exca terkecil yang muat
+   di ekspektasi fleet; DT dari jarak (rumus cycle sama dgn productivity()). */
+function genPlan(st,R,tier){
+  const msgs=[];
+  const isCoal=st.arch==='coal';
+  const dens=isCoal?(R.coal.density||1.3):1;
+  let targetYearly=+st.tval||0;
+  if(st.tmode==='monthly') targetYearly*=12;
+  if(st.tmode==='project') targetYearly=targetYearly/Math.max(1,st.years);
+  const effHrs=8760*R.match.pa*R.match.ua;                      /* jam efektif /th (basis T1; PA tier diterapkan di combo) */
+  let sel=null, loaders=0;
+  for(const c of GEN_CLASSES.exca){
+    const e=c[tier], dtv=c.dt[tier];
+    const pass=Math.max(1,Math.round(dtv.vessel/e.bucket));
+    const cyc=e.ct*pass+R.match.prep;
+    const ptyHr=e.bucket*R.match.fillEff*pass*(3600/cyc)*dens;  /* m3/h → (×densitas utk ton coal) */
+    const ptyYr=ptyHr*effHrs;
+    const need=Math.ceil(targetYearly/Math.max(1,ptyYr));
+    const cand={cls:c, e, dtv, pass, ptyHr, ptyYr, need};
+    if(need<=st.fleets){ sel=cand; break; }
+    sel=cand;                                                    /* simpan kandidat terbesar sejauh ini */
+  }
+  loaders=Math.max(sel.need, Math.min(st.fleets, Math.max(sel.need,1)));
+  if(sel.need>st.fleets){
+    msgs.push('⚠️ Ekspektasi '+st.fleets+' fleet TIDAK cukup — kelas terbesar ('+sel.cls.label+') butuh minimal '+sel.need+' fleet. Dipakai '+sel.need+'.');
+    loaders=sel.need;
+  } else if(sel.need<st.fleets){
+    loaders=st.fleets;
+    msgs.push('ℹ️ Kebutuhan minimum '+sel.need+' fleet; ekspektasimu '+st.fleets+' dipakai (utilisasi lebih rendah, ada cadangan kapasitas).');
+  }
+  if(sel.pass<R.match.passMin||sel.pass>R.match.passMax) msgs.push('⚠️ Pass '+sel.pass+' di luar ideal '+R.match.passMin+'–'+R.match.passMax+' (pasangan bucket '+sel.e.bucket+' m³ vs vessel '+sel.dtv.vessel+' m³).');
+  /* DT per fleet — cycle hauler: spotting + travel + loading */
+  const travel=(st.dist/sel.dtv.ve + st.dist/sel.dtv.vl)*3600;
+  const ctH=R.match.spot+travel+(sel.e.ct*sel.pass);
+  const ptyHauler=(sel.dtv.vessel*R.match.vEff*dens)/(ctH/3600);
+  const dtPerFleet=Math.max(1,Math.ceil(sel.ptyHr/Math.max(1,ptyHauler)));
+  const dtTotal=dtPerFleet*loaders;
+  /* Alat support dari rasio (rules) */
+  const sup={
+    dozer:Math.max(1,Math.round(R.sup.dozerPerFleet*loaders)),
+    grader:Math.max(1,Math.ceil(st.dist/R.sup.kmPerGrader)),
+    wt:Math.max(1,Math.ceil(st.dist/R.sup.kmPerWT)),
+    vibro:Math.max(1,Math.ceil(st.dist/R.sup.kmPerVibro)),
+    ft:Math.max(1,Math.round(R.sup.ftPerSite)),
+    lv:Math.max(1,Math.round(R.sup.lvBase+R.sup.lvPerFleet*loaders)),
+    lamp:Math.max(1,Math.round(R.sup.lampPerFleet*loaders))
+  };
+  const heavyUnits=loaders+dtTotal+sup.dozer+sup.grader+sup.wt+sup.vibro+sup.ft;
+  sup.lube=Math.max(1,Math.ceil(heavyUnits/R.sup.lubePerUnits));
+  const totalUnits=heavyUnits+sup.lube+sup.lv+sup.lamp;
+  const mech=Math.max(1,Math.ceil((heavyUnits+sup.lube)/R.mp.unitsPerMech));
+  const spvProd=Math.max(1,Math.round(loaders*R.mp.shifts*R.mp.spvPerFleetShift));
+  const util=targetYearly/(loaders*sel.ptyYr)*100;
+  return {tier,msgs,targetYearly,effHrs,isCoal,dens,cls:sel.cls,e:sel.e,dtv:sel.dtv,pass:sel.pass,
+    ptyHr:sel.ptyHr,ptyYr:sel.ptyYr,loaders,dtPerFleet,dtTotal,sup,heavyUnits,totalUnits,mech,spvProd,util};
+}
+function genComboParams(combo,R){
+  const t=R.tier, pa0=R.match.pa;
+  if(combo.id==='t1')      return {pa:pa0, mf:100};
+  if(combo.id==='t2')      return {pa:pa0-t.t2PaDelta/100, mf:100+t.t2MaintAdd};
+  if(combo.id==='mix')     return {pa:pa0-t.t2PaDelta/200, mf:100+Math.round(t.t2MaintAdd/2)};
+  return {pa:pa0-(t.t2PaDelta+t.usedPaDelta)/200, mf:100+Math.round((t.t2MaintAdd+t.usedMaintAdd)/2)};
+}
+function genBuildEquip(plan,combo,R,archStream){
+  const rows=[];
+  const usedTag=combo.used?' (Used)':'';
+  /* Produksi: exca + DT (tier produksi) */
+  rows.push({cat:plan.cls.cat, merk:plan.e.merk, model:plan.e.model, qty:plan.loaders,
+    price:genPrice({t1:plan.cls.t1,t2:plan.cls.t2},combo.prodTier,false,R), priceSource:'GEN '+combo.label, stream:archStream});
+  rows.push({cat:plan.dtv===plan.cls.dt.t1||plan.dtv===plan.cls.dt.t2?'Dump Truck':'Dump Truck', merk:plan.dtv.merk, model:plan.dtv.model, qty:plan.dtTotal,
+    price:genPrice(plan.cls.dt,combo.prodTier,false,R), priceSource:'GEN '+combo.label, stream:archStream});
+  /* Support: tier support (+used bila combo used) */
+  GEN_CLASSES.support.forEach(s=>{
+    const qty=plan.sup[s.key]||0; if(qty<=0) return;
+    const d=s[combo.supTier]||s.t1;
+    rows.push({cat:s.cat, merk:d.merk, model:d.model+usedTag, qty:qty,
+      price:genPrice(s,combo.supTier,combo.used,R), priceSource:'GEN '+combo.label, stream:archStream});
+  });
+  return rows;
+}
+function genEnsureFolder(folder){
+  try{
+    let f=[]; try{ f=JSON.parse(localStorage.getItem('rc_folders_v1')||'[]')||[]; }catch(e){ f=[]; }
+    if(f.indexOf(folder)<0){ f.push(folder); localStorage.setItem('rc_folders_v1', JSON.stringify(f)); }
+  }catch(e){}
+}
+function genOpen(i){
+  const L=window._genLast; if(!L||!L.results[i]) return;
+  if(typeof pickProject==='function') pickProject(L.results[i].name);
+}
+function genRun(){
+  const st=genState, R=genRules();
+  const combos=GEN_COMBOS.filter(c=>st.combos[c.id]);
+  if(!combos.length){ alert('Pilih minimal 1 kombinasi.'); return; }
+  if(!(+st.tval>0)){ alert('Isi target produksi.'); return; }
+  const base=(st.base||'').trim()||'Site Baru';
+  const folder='GEN — '+base;
+  const archStream=st.arch==='coal'?'coal_get':'ob';
+  const cur=getActiveProject();
+  let projs=readProjects(); projs[cur]=snapshotScenario(); writeProjects(projs);
+  genEnsureFolder(folder);
+  const results=[];
+  combos.forEach(combo=>{
+    const plan=genPlan(st,R,combo.prodTier);
+    const cp=genComboParams(combo,R);
+    let name=base+' · '+combo.label;
+    let pj=readProjects(); let n2=name,i=2; while(n2 in pj){ n2=name+' ('+i+')'; i++; } name=n2;
+    pj[name]=null; writeProjects(pj);
+    setProjectFolder(name, folder);
+    setActiveProject(name);
+    _resetCalculatorToDefaults();
+    /* --- isi seluruh input sesuai rencana --- */
+    const setv=(id,v)=>{ if($(id)) $(id).value=v; };
+    setv('preset', st.arch==='coal'?'coal':'ob');
+    setv('years', st.years); setv('usd', (typeof abKursTerkini==='function')?abKursTerkini():17000);
+    setv('margin', 1.2); setv('mp_ratio', 2.7); setv('akom_cost', 2500000);
+    setv('qnty', plan.loaders); setv('pa', cp.pa.toFixed(2)); setv('ua', R.match.ua); setv('hrs', 8760);
+    setv('adj', 1); /* harga katalog generator = harga final (tanpa faktor adjust) */
+    setv('maint_factor', cp.mf);
+    /* Loader (Calculator) — bucket dikali densitas utk Coal supaya produksi tampil dlm Ton */
+    if($('l_merk')) $('l_merk').value=plan.e.merk;
+    try{ updateLoaderModels(plan.e.model); }catch(e){}
+    setv('l_bucket', +(plan.e.bucket*plan.dens).toFixed(2));
+    setv('l_ct', plan.e.ct); setv('l_prep', R.match.prep); setv('l_eff', R.match.fillEff);
+    /* Hauler — kalau model tak ada di HAULER_DB, pakai kolom manual (vessel/speed di-set langsung) */
+    if(!plan.dtv.notInHaulerDb && $('h_merk')){ $('h_merk').value=plan.dtv.merk; try{ updateHaulerModels(plan.dtv.model); }catch(e){} }
+    setv('h_vessel', +(plan.dtv.vessel*plan.dens).toFixed(1));
+    setv('h_ve', plan.dtv.ve); setv('h_vl', plan.dtv.vl);
+    setv('h_dist', st.dist); setv('h_eff', R.match.vEff);
+    setv('h_dt', Math.round(R.match.spot/3)); setv('h_dp', Math.round(R.match.spot/3)); setv('h_lp', Math.round(R.match.spot/3));
+    /* Calculator Produksi (pc_*) — diisi dari rencana yang sama supaya tab-nya konsisten.
+       CATATAN: pc pakai satuan PERSEN utk eff/PA/UA dan MOHH jam/bulan. */
+    if($('pc_category')) $('pc_category').value=(st.arch==='coal'?'coal_get':'ob');
+    setv('pc_bucket', +(plan.e.bucket*plan.dens).toFixed(2)); setv('pc_eff_bucket', Math.round(R.match.fillEff*100));
+    setv('pc_ct_loader', plan.e.ct); setv('pc_prep', R.match.prep);
+    setv('pc_vessel', +(plan.dtv.vessel*plan.dens).toFixed(1)); setv('pc_eff_vessel', Math.round(R.match.vEff*100));
+    setv('pc_dump_time', Math.round(R.match.spot/3)); setv('pc_dump_pos', Math.round(R.match.spot/3)); setv('pc_load_pos', Math.round(R.match.spot/3));
+    setv('pc_speed_empty', plan.dtv.ve); setv('pc_speed_loaded', plan.dtv.vl); setv('pc_distance', st.dist);
+    setv('pc_pa', Math.round(cp.pa*100)); setv('pc_ua', Math.round(R.match.ua*100));
+    setv('pc_mohh', 730); setv('pc_fleet', plan.loaders); setv('pc_years', st.years);
+    /* Target produksi per stream (per tahun) — DI-SET SETELAH rerender juga, karena
+       auto-link Calculator Produksi menimpanya dgn kapasitas fleet. Target klien menang. */
+    setv(st.arch==='coal'?'prod_coal_ton':'prod_ob_bcm', Math.round(plan.targetYearly));
+    /* Equipment & manpower & support */
+    equip=genBuildEquip(plan,combo,R,archStream);
+    support=defaultSupport();
+    manpower=defaultMP().map(m=>{
+      const p=m.pos||'';
+      if(/^spv production/i.test(p)) return Object.assign({},m,{qty:plan.spvProd});
+      if(/^mekanik/i.test(p))        return Object.assign({},m,{qty:plan.mech});
+      if(/^foreman production/i.test(p)) return Object.assign({},m,{qty:plan.loaders});
+      if(/^spv plant/i.test(p))      return Object.assign({},m,{qty:1});
+      return m;
+    });
+    _rerenderAllClean();
+    /* Auto-link pc menimpa prod stream dgn KAPASITAS fleet — kembalikan ke TARGET klien
+       (basis revenue = volume kontrak, bukan kapasitas), lalu hitung ulang. */
+    setv(st.arch==='coal'?'prod_coal_ton':'prod_ob_bcm', Math.round(plan.targetYearly));
+    try{ calc(); }catch(e){}
+    /* --- metrik utk tabel perbandingan (calc sudah jalan) --- */
+    let met={};
+    try{
+      const cf=window._cfCache||{}; const ma=computeModalAwal();
+      const eqCap=equip.reduce((a,e)=>a+(+e.price||0)*(+e.qty||0),0);
+      met={ rate:(st.arch==='coal'?+cf.rateTon:+cf.rateBcm)||0, cost:+cf.cost||0,
+            eqCap, modal:(ma.dpEquip||0)+(ma.capexInfra||0), opexMo:+ma.moOpex||0 };
+    }catch(e){ met={rate:0,cost:0,eqCap:0,modal:0,opexMo:0}; }
+    /* simpan project variant */
+    const snap=snapshotScenario(); let p3=readProjects(); p3[name]=snap; writeProjects(p3);
+    results.push(Object.assign({name, combo:combo.id, label:combo.label, plan:{cls:plan.cls.label, loaders:plan.loaders, dt:plan.dtTotal, pass:plan.pass, util:plan.util}}, met));
+  });
+  /* pulihkan project semula */
+  setActiveProject(cur);
+  const back=readProjects()[cur]; if(back) _applyScenario(back); else _resetCalculatorToDefaults();
+  _rerenderAllClean(); refreshProjectDropdown();
+  window._genLast={results, folder, base, arch:st.arch, ts:Date.now()};
+  genRender();
+}
+function genRender(){
+  const host=$('gen_body'); if(!host) return;
+  const st=genState, R=genRules();
+  const isCoal=st.arch==='coal';
+  const unit=isCoal?'Ton':'BCM';
+  const inp=(k,label,val,step,w,tip)=>'<label class="text-xs" style="color:#a8a29e">'+label+'<br><input type="number" step="'+step+'" min="0" value="'+val+'" onchange="genSetState(\''+k+'\',this.value)" class="num-in mt-1" style="width:'+w+'px" title="'+(tip||'')+'"></label>';
+  let h='';
+  /* ---- FORM INPUT ---- */
+  h+='<div style="background:#14110e;border:1px solid #3d342a;border-radius:10px;padding:12px;margin-bottom:12px">';
+  h+='<div style="font-size:11px;font-weight:800;letter-spacing:.6px;color:#fbbf24;margin-bottom:8px">🎯 INPUT — CUKUP INI SAJA</div>';
+  h+='<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end">';
+  h+='<label class="text-xs" style="color:#a8a29e">Jenis<br><select onchange="genSetState(\'arch\',this.value)" class="num-in mt-1" style="width:150px"><option value="ob"'+(st.arch==='ob'?' selected':'')+'>⛏️ OB (BCM)</option><option value="coal"'+(isCoal?' selected':'')+'>🪨 Coal Getting (Ton)</option></select></label>';
+  h+='<label class="text-xs" style="color:#a8a29e">Basis target<br><select onchange="genSetState(\'tmode\',this.value)" class="num-in mt-1" style="width:130px"><option value="monthly"'+(st.tmode==='monthly'?' selected':'')+'>Bulanan</option><option value="yearly"'+(st.tmode==='yearly'?' selected':'')+'>Tahunan</option><option value="project"'+(st.tmode==='project'?' selected':'')+'>Total Project</option></select></label>';
+  h+=inp('tval','Target ('+unit+'/'+(st.tmode==='monthly'?'bln':(st.tmode==='yearly'?'th':'project'))+')',st.tval,'10000',150,'Target produksi dari klien');
+  h+=inp('years','Durasi (th)',st.years,'1',70,'');
+  h+=inp('dist','Jarak (km)',st.dist,'0.5',80,'Jarak front → disposal/ROM. Menentukan jumlah DT & alat jalan (grader/WT/vibro)');
+  h+=inp('fleets','Ekspektasi fleet',st.fleets,'1',100,'Jumlah fleet (1 fleet = 1 excavator + rombongan DT). Generator validasi cukup/tidak');
+  h+='<label class="text-xs" style="color:#a8a29e">Nama site/project<br><input type="text" value="'+String(st.base).replace(/"/g,'&quot;')+'" onchange="genSetState(\'base\',this.value)" class="num-in mt-1" style="width:170px"></label>';
+  h+='</div>';
+  h+='<div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:10px">';
+  GEN_COMBOS.forEach(c=>{ h+='<label class="text-xs" style="color:#d6d3d1;display:flex;align-items:center;gap:5px" title="'+c.desc+'"><input type="checkbox" '+(st.combos[c.id]?'checked':'')+' onchange="genSetState(\'combo_'+c.id+'\',this.checked)"> '+c.label+'</label>'; });
+  h+='<button class="btn" onclick="genRun()" style="margin-left:auto;padding:7px 18px;font-weight:800;background:#fbbf24;color:#1a1410;border:none;border-radius:8px;cursor:pointer">🏗️ Generate '+GEN_COMBOS.filter(c=>st.combos[c.id]).length+' Kombinasi → Project</button>';
+  h+='</div></div>';
+  /* ---- PRATINJAU RENCANA FLEET (T1 vs T2) ---- */
+  if(+st.tval>0){
+    h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;margin-bottom:12px">';
+    ['t1','t2'].forEach(tier=>{
+      const P=genPlan(st,R,tier);
+      h+='<div style="background:linear-gradient(160deg,#1a1410,#14110e);border:1px solid #3d342a;border-radius:10px;padding:12px">';
+      h+='<div style="font-size:12px;font-weight:800;color:#fde68a;margin-bottom:6px">📐 Rencana '+(tier==='t1'?'Tier 1':'Tier 2')+' — '+P.cls.label+'</div>';
+      h+='<div class="text-xs" style="color:#a8a29e;line-height:1.7">';
+      h+='Loader: <b style="color:#fde68a">'+P.loaders+'× '+P.e.merk+' '+P.e.model+'</b> (bucket '+P.e.bucket+' m³ · pty '+Math.round(P.ptyHr)+' '+unit.toLowerCase()+'/jam)<br>';
+      h+='DT: <b style="color:#fde68a">'+P.dtTotal+'× '+P.dtv.merk+' '+P.dtv.model+'</b> ('+P.dtPerFleet+'/fleet · vessel '+P.dtv.vessel+' m³ · '+P.pass+' pass)<br>';
+      h+='Support: '+P.sup.dozer+' dozer · '+P.sup.grader+' grader · '+P.sup.wt+' WT · '+P.sup.vibro+' vibro · '+P.sup.ft+' FT · '+P.sup.lube+' lube · '+P.sup.lv+' LV · '+P.sup.lamp+' lamp<br>';
+      h+='Manpower kunci: '+P.spvProd+' Spv Prod · '+P.mech+' mekanik · operator auto (2.7×unit)<br>';
+      h+='Utilisasi: <b style="color:'+(P.util>100?'#f87171':'#84cc16')+'">'+P.util.toFixed(0)+'%</b> · total '+P.totalUnits+' unit';
+      h+='</div>';
+      P.msgs.forEach(m=>{ h+='<div class="text-xs" style="color:#fdba74;margin-top:5px">'+m+'</div>'; });
+      h+='</div>';
+    });
+    h+='</div>';
+  }
+  /* ---- RULES (editable) ---- */
+  h+='<details style="background:#14110e;border:1px solid #3d342a;border-radius:10px;padding:10px 12px;margin-bottom:12px"><summary style="cursor:pointer;font-size:11px;font-weight:800;letter-spacing:.6px;color:#fbbf24">⚙️ RULES — SEMUA ATURAN BISA DIUBAH (tersimpan otomatis)</summary>';
+  const rinp=(p,label,val,step,tip)=>'<label class="text-xs" style="color:#a8a29e">'+label+'<br><input type="number" step="'+step+'" value="'+val+'" onchange="genSetRule(\''+p+'\',this.value)" class="num-in mt-1" style="width:90px" title="'+(tip||'')+'"></label>';
+  h+='<div style="margin-top:10px"><div class="text-xs" style="color:#fde68a;font-weight:700;margin-bottom:4px">Tier & Used</div><div style="display:flex;gap:12px;flex-wrap:wrap">';
+  h+=rinp('tier.t2Price','Harga T2 (× T1)',R.tier.t2Price,'0.01','Tier 2 = rasio ini × harga Tier 1 (dipakai bila tak ada harga riil)');
+  h+=rinp('tier.t2PaDelta','PA T2 (−pt)',R.tier.t2PaDelta,'1','Pengurang Physical Availability utk Tier 2');
+  h+=rinp('tier.t2MaintAdd','Maint T2 (+%)',R.tier.t2MaintAdd,'1','Tambahan faktor maintenance Tier 2');
+  h+=rinp('tier.usedPrice','Harga Used (× new)',R.tier.usedPrice,'0.01','');
+  h+=rinp('tier.usedPaDelta','PA Used (−pt)',R.tier.usedPaDelta,'1','');
+  h+=rinp('tier.usedMaintAdd','Maint Used (+%)',R.tier.usedMaintAdd,'1','');
+  h+='</div></div>';
+  h+='<div style="margin-top:10px"><div class="text-xs" style="color:#fde68a;font-weight:700;margin-bottom:4px">Matching & Produktivitas</div><div style="display:flex;gap:12px;flex-wrap:wrap">';
+  h+=rinp('match.pa','PA',R.match.pa,'0.01','')+rinp('match.ua','UA',R.match.ua,'0.01','')+rinp('match.passMin','Pass min',R.match.passMin,'1','')+rinp('match.passMax','Pass max',R.match.passMax,'1','')+rinp('match.prep','Prep (dtk)',R.match.prep,'5','')+rinp('match.fillEff','Bucket fill',R.match.fillEff,'0.05','')+rinp('match.vEff','Vessel fill',R.match.vEff,'0.05','')+rinp('match.spot','Spotting (dtk)',R.match.spot,'10','total waktu antri+dumping+loading position');
+  h+=rinp('coal.density','Densitas coal (t/bcm)',R.coal.density,'0.05','Konversi bucket m³ → ton utk Coal Getting');
+  h+='</div></div>';
+  h+='<div style="margin-top:10px"><div class="text-xs" style="color:#fde68a;font-weight:700;margin-bottom:4px">Alat Support (rasio)</div><div style="display:flex;gap:12px;flex-wrap:wrap">';
+  h+=rinp('sup.dozerPerFleet','Dozer /fleet',R.sup.dozerPerFleet,'1','')+rinp('sup.kmPerGrader','km /grader',R.sup.kmPerGrader,'0.5','')+rinp('sup.kmPerWT','km /WT',R.sup.kmPerWT,'0.5','')+rinp('sup.kmPerVibro','km /vibro',R.sup.kmPerVibro,'0.5','')+rinp('sup.ftPerSite','FT /site',R.sup.ftPerSite,'1','')+rinp('sup.lubePerUnits','Unit /lube truck',R.sup.lubePerUnits,'1','')+rinp('sup.lvBase','LV dasar',R.sup.lvBase,'1','')+rinp('sup.lvPerFleet','LV /fleet',R.sup.lvPerFleet,'1','')+rinp('sup.lampPerFleet','Lamp /fleet',R.sup.lampPerFleet,'1','');
+  h+='</div></div>';
+  h+='<div style="margin-top:10px"><div class="text-xs" style="color:#fde68a;font-weight:700;margin-bottom:4px">Manpower</div><div style="display:flex;gap:12px;flex-wrap:wrap">';
+  h+=rinp('mp.unitsPerMech','Unit /mekanik',R.mp.unitsPerMech,'1','')+rinp('mp.shifts','Shift',R.mp.shifts,'1','')+rinp('mp.spvPerFleetShift','Spv /fleet/shift',R.mp.spvPerFleetShift,'1','');
+  h+='</div><div class="text-xs" style="color:#78716c;margin-top:8px">Harga katalog kelas alat (Tier 1 anchor historis; Tier 2 riil bila ada quote, sisanya parametrik) — nanti diganti database lengkap. Kosongkan field → kembali ke default.</div></div>';
+  h+='</details>';
+  /* ---- HASIL GENERATE TERAKHIR ---- */
+  const L=window._genLast;
+  if(L&&L.results&&L.results.length){
+    const uu=L.arch==='coal'?'Ton':'BCM';
+    h+='<div style="background:#14110e;border:1px solid #3d342a;border-radius:10px;padding:12px">';
+    h+='<div style="font-size:11px;font-weight:800;letter-spacing:.6px;color:#fbbf24;margin-bottom:8px">📊 HASIL — folder "'+L.folder+'" ('+L.results.length+' variant)</div>';
+    h+='<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:640px">';
+    h+='<tr style="border-bottom:1px solid #3d342a"><th style="text-align:left;padding:6px 8px;color:#fbbf24">Kombinasi</th><th style="text-align:left;padding:6px 8px;color:#fbbf24">Fleet</th><th style="text-align:right;padding:6px 8px;color:#fbbf24">Capex Alat</th><th style="text-align:right;padding:6px 8px;color:#fbbf24">Modal Awal</th><th style="text-align:right;padding:6px 8px;color:#fbbf24">Opex/bln</th><th style="text-align:right;padding:6px 8px;color:#fbbf24">Rate ($/'+uu+')</th><th style="padding:6px 8px"></th></tr>';
+    const bestRate=Math.min.apply(null,L.results.filter(r=>r.rate>0).map(r=>r.rate));
+    L.results.forEach((r,i)=>{
+      const best=r.rate>0&&r.rate===bestRate;
+      h+='<tr style="border-bottom:1px solid #241a12'+(best?';background:rgba(132,204,22,.07)':'')+'">';
+      h+='<td style="padding:6px 8px;color:#fde68a;font-weight:700">'+(best?'⭐ ':'')+r.label+'</td>';
+      h+='<td style="padding:6px 8px;color:#a8a29e">'+r.plan.cls+' ×'+r.plan.loaders+' + '+r.plan.dt+' DT</td>';
+      h+='<td style="padding:6px 8px;text-align:right;color:#e7e5e4">Rp '+cfFmtB(r.eqCap)+'</td>';
+      h+='<td style="padding:6px 8px;text-align:right;color:#e7e5e4">Rp '+cfFmtB(r.modal)+'</td>';
+      h+='<td style="padding:6px 8px;text-align:right;color:#e7e5e4">Rp '+cfFmtB(r.opexMo)+'</td>';
+      h+='<td style="padding:6px 8px;text-align:right;color:'+(best?'#84cc16':'#fde68a')+';font-weight:800">$'+(+r.rate).toFixed(4)+'</td>';
+      h+='<td style="padding:6px 8px;text-align:right"><button class="btn btn-sec" onclick="genOpen('+i+')" style="padding:3px 10px;font-size:11px">Buka →</button></td>';
+      h+='</tr>';
+    });
+    h+='</table></div>';
+    h+='<div class="text-xs" style="color:#78716c;margin-top:8px">⭐ = rate terendah. Tiap variant adalah project penuh — buka untuk lihat semua tab (Calculator, TCO, Cashflow, ⚖️ Uji Kelayakan). Rate = HPP × margin 1.2.</div>';
+    h+='</div>';
+  }
+  host.innerHTML=h;
+}
 
 /* ================================================================
    EV HAULING SIMULATOR — Version selector
@@ -7090,6 +7639,147 @@ function duplicateProject(){
   _rerenderAllClean();
   const ind = $('autosave_ind');
   if(ind){ ind.style.color='#84cc16'; ind.textContent = '● Duplikat: '+name; }
+}
+
+/* ================================================================
+   ⚡ AUTO-BUDGET — isi angka budget meniru pola keputusan user, digerakkan
+   oleh archetype (preset). Aturan diekstrak dari 22 project historis:
+   margin 1.2 (1.15 replacement) · durasi 3 th · mp_ratio 2.7 · rental full ·
+   kurs USD = terkini · rental_risk by archetype (OB/Coal 10, Haul 5, Rental 0) ·
+   akom 2,5 jt (ikut referensi bila fleet disalin). Non-destruktif: bikin project baru.
+   ================================================================ */
+function abKursTerkini(){
+  try{
+    const projs=readProjects(); let bestU=null,bestTs=-1;
+    for(const k in projs){ const s=projs[k]; if(!s||!s.project) continue;
+      const ts=+s.ts||0, u=+s.project.usd||0; if(u>0 && ts>=bestTs){ bestTs=ts; bestU=u; } }
+    return bestU||17000;
+  }catch(e){ return 17000; }
+}
+function abArchLabel(a){ return ({ob:'⛏️ OB ($/BCM)',coal:'🪨 Coal ($/Ton)',haul:'🚛 Hauling ($/Ton/Km)',rental_hr:'💰 Rental /Hour',rental_day:'💰 Rental /Day',rental_mo:'💰 Rental /Month'})[a]||a; }
+function abRules(arch, isReplace, refScn){
+  const isRental = String(arch).indexOf('rental')===0;
+  const usd  = abKursTerkini();
+  const risk = isRental ? 0 : (arch==='haul' ? 5 : 10);
+  const margin = isReplace ? 1.15 : 1.2;
+  const refCrew = (refScn && Array.isArray(refScn.manpower)) ? refScn.manpower.reduce((a,m)=>a+(+m.qty||0),0) : null;
+  const mp_ratio = (isRental && refCrew===0) ? 1.7 : 2.7;
+  const refAkom = (refScn && refScn.project && +refScn.project.akom_cost>0) ? +refScn.project.akom_cost : 0;
+  const akom = refAkom>0 ? refAkom : 2500000;
+  const v = { margin, years:3, usd, mp_ratio, rental_risk:risk, akom_cost:akom, rental_scheme:'full' };
+  const reasons = {
+    margin: isReplace ? 'Project replacement → 1.15' : 'Default 1.2 (20/22 project)',
+    years: 'Selalu 3 tahun (22/22)',
+    usd: 'Kurs terkini (project ts terbaru)',
+    mp_ratio: (mp_ratio===1.7) ? 'Rental tanpa crew → 1.7' : 'Default 2.7 (21/22)',
+    rental_risk: isRental ? 'Rental → 0%' : (arch==='haul' ? 'Hauling → 5%' : 'Rate mining → 10%'),
+    akom_cost: refAkom>0 ? 'Ikut referensi (skala camp)' : 'Default 2,5 jt (mode)',
+    rental_scheme: 'Selalu full'
+  };
+  return { isRental, v, reasons };
+}
+function openAutoBudget(){
+  const arch0 = $('preset')?.value || 'ob';
+  const projs = readProjects();
+  let ov=document.getElementById('ab_overlay'); if(ov) ov.remove();
+  ov=document.createElement('div'); ov.id='ab_overlay';
+  ov.style.cssText='position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:20px';
+  ov.onclick=(e)=>{ if(e.target===ov) closeAutoBudget(); };
+  const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  const refOpts=['<option value="">— Tanpa (fleet & crew default) —</option>'].concat(
+    Object.keys(projs).filter(k=>projs[k]&&projs[k].preset)
+      .sort((a,b)=>((projs[a].preset===arch0?0:1)-(projs[b].preset===arch0?0:1)) || a.localeCompare(b))
+      .map(k=>{ const same=projs[k].preset===arch0; return '<option value="'+esc(k)+'">'+(same?'★ ':'')+esc(k)+' ['+esc(projs[k].preset||'?')+']</option>'; })
+  ).join('');
+  const archOpts=['ob','coal','haul','rental_hr','rental_day','rental_mo']
+    .map(a=>'<option value="'+a+'"'+(a===arch0?' selected':'')+'>'+abArchLabel(a)+'</option>').join('');
+  ov.innerHTML='<div style="background:#1a1410;border:1px solid #78350f;border-radius:12px;max-width:660px;width:100%;max-height:88vh;overflow:auto;box-shadow:0 18px 50px rgba(0,0,0,.6)">'
+    +'<div style="padding:16px 18px;border-bottom:1px solid #3d342a;display:flex;justify-content:space-between;align-items:center">'
+      +'<div style="font-size:15px;font-weight:800;color:#fbbf24">⚡ Auto-budget</div>'
+      +'<button onclick="closeAutoBudget()" class="btn-sec" style="padding:2px 9px">✕</button></div>'
+    +'<div style="padding:16px 18px">'
+      +'<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:14px;align-items:flex-end">'
+        +'<label class="text-xs" style="color:#a8a29e">Archetype<br><select id="ab_arch" onchange="abRenderPreview()" class="num-in mt-1" style="width:200px">'+archOpts+'</select></label>'
+        +'<label class="text-xs" style="color:#a8a29e">Referensi fleet & crew<br><select id="ab_ref" onchange="abRenderPreview()" class="num-in mt-1" style="width:270px">'+refOpts+'</select></label>'
+        +'<label class="text-xs" style="color:#a8a29e;display:flex;align-items:center;gap:6px;padding-bottom:6px"><input type="checkbox" id="ab_replace" onchange="abRenderPreview()"> Project replacement (1.15)</label>'
+      +'</div>'
+      +'<div id="ab_preview"></div>'
+      +'<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">'
+        +'<button onclick="closeAutoBudget()" class="btn-sec" style="padding:6px 14px">Batal</button>'
+        +'<button onclick="applyAutoBudget()" class="btn" style="padding:6px 16px;font-weight:800;background:#fbbf24;color:#1a1410;border:none;border-radius:8px;cursor:pointer">⚡ Terapkan → project baru</button>'
+      +'</div>'
+    +'</div></div>';
+  document.body.appendChild(ov);
+  abRenderPreview();
+}
+function closeAutoBudget(){ const ov=document.getElementById('ab_overlay'); if(ov) ov.remove(); }
+function abRenderPreview(){
+  const arch=$('ab_arch')?.value||'ob';
+  const isRep=$('ab_replace')?.checked||false;
+  const refName=$('ab_ref')?.value||'';
+  const projs=readProjects(); const refScn=refName?projs[refName]:null;
+  const R=abRules(arch,isRep,refScn);
+  const rows=[
+    ['preset','Archetype',abArchLabel(arch),'—',false],
+    ['margin','Margin (×)',R.v.margin,R.reasons.margin,true,'0.05'],
+    ['years','Durasi (tahun)',R.v.years,R.reasons.years,true,'1'],
+    ['usd','Kurs USD (Rp)',R.v.usd,R.reasons.usd,true,'100'],
+    ['mp_ratio','MP ratio',R.v.mp_ratio,R.reasons.mp_ratio,true,'0.1'],
+    ['rental_risk','Rental risk (%)',R.v.rental_risk,R.reasons.rental_risk,true,'1'],
+    ['akom_cost','Akomodasi (Rp/org)',R.v.akom_cost,R.reasons.akom_cost,true,'100000'],
+    ['rental_scheme','Rental scheme',R.v.rental_scheme,R.reasons.rental_scheme,false]
+  ];
+  let h='<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:100%">';
+  h+='<tr style="border-bottom:1px solid #3d342a"><th style="text-align:left;padding:6px 8px;color:#fbbf24">Lever</th><th style="text-align:left;padding:6px 8px;color:#fbbf24;width:130px">Nilai</th><th style="text-align:left;padding:6px 8px;color:#fbbf24">Kenapa</th></tr>';
+  rows.forEach(r=>{
+    const k=r[0],label=r[1],val=r[2],reason=r[3],editable=r[4],step=r[5]||'1';
+    let cell;
+    if(!editable){ cell='<span style="color:#e7e5e4;font-weight:700">'+val+'</span>'; }
+    else { cell='<input id="ab_v_'+k+'" type="number" step="'+step+'" value="'+val+'" class="num-in" style="width:120px">'; }
+    h+='<tr style="border-bottom:1px solid #241a12"><td style="padding:6px 8px;color:#d6d3d1">'+label+'</td><td style="padding:6px 8px">'+cell+'</td><td style="padding:6px 8px;color:#a8a29e;font-size:11px">'+reason+'</td></tr>';
+  });
+  h+='</table></div>';
+  if(refScn){
+    const eq=(refScn.equip||[]).length, mp=(refScn.manpower||[]).reduce((a,m)=>a+(+m.qty||0),0), sup=(refScn.support||[]).length;
+    h+='<div class="text-xs" style="color:#84cc16;margin-top:10px">📋 Menyalin dari <b>'+refName+'</b>: '+eq+' baris alat · '+mp+' crew · '+sup+' support · produksi (cek ulang setelah terapkan).</div>';
+  } else {
+    h+='<div class="text-xs" style="color:#a8a29e;margin-top:10px">Fleet & crew: pakai default archetype — isi manual setelah terapkan. Produksi OB/Coal juga diisi manual.</div>';
+  }
+  const host=$('ab_preview'); if(host) host.innerHTML=h;
+}
+function applyAutoBudget(){
+  const arch=$('ab_arch')?.value||'ob';
+  const isRep=$('ab_replace')?.checked||false;
+  const refName=$('ab_ref')?.value||'';
+  let projs=readProjects(); const refScn=refName?projs[refName]:null;
+  const R=abRules(arch,isRep,refScn);
+  const rd=(k,def)=>{ const el=$('ab_v_'+k); return (el&&el.value!=='')?+el.value:def; };
+  const vals={ margin:rd('margin',R.v.margin), years:rd('years',R.v.years), usd:rd('usd',R.v.usd),
+    mp_ratio:rd('mp_ratio',R.v.mp_ratio), rental_risk:rd('rental_risk',R.v.rental_risk), akom_cost:rd('akom_cost',R.v.akom_cost) };
+  const base=({ob:'OB',coal:'Coal',haul:'Hauling',rental_hr:'Rental',rental_day:'Rental',rental_mo:'Rental'})[arch]||'Project';
+  const name=(prompt('Nama project baru (Auto-budget):', base+' Baru')||'').trim();
+  if(!name) return;
+  if(name in projs){ alert('Project "'+name+'" sudah ada.'); return; }
+  /* Simpan project aktif dulu, lalu buat slot baru (clone referensi bila ada). */
+  const cur=getActiveProject(); projs[cur]=snapshotScenario();
+  if(refScn){ try{ projs[name]=JSON.parse(JSON.stringify(refScn)); }catch(e){ projs[name]=null; } }
+  else projs[name]=null;
+  writeProjects(projs);
+  setProjectFolder(name, getProjectFolder(cur));
+  setActiveProject(name);
+  if(projs[name]) _applyScenario(projs[name]); else _resetCalculatorToDefaults();
+  /* Override lever budget sesuai ruleset (+ editan user). Produksi & fleet dibiarkan
+     apa adanya (dari referensi bila disalin, atau default bila tidak). */
+  const setv=(id,v)=>{ if($(id)) $(id).value=v; };
+  setv('preset',arch); setv('margin',vals.margin); setv('years',vals.years); setv('usd',vals.usd);
+  setv('mp_ratio',vals.mp_ratio); setv('rental_risk',vals.rental_risk); setv('akom_cost',vals.akom_cost);
+  setv('rental_scheme','full');
+  _rerenderAllClean();
+  /* Persist project baru sekarang. */
+  const snap=snapshotScenario(); projs=readProjects(); projs[name]=snap; writeProjects(projs);
+  refreshProjectDropdown();
+  closeAutoBudget();
+  const ind=$('autosave_ind'); if(ind){ ind.style.color='#84cc16'; ind.textContent='● Auto-budget: '+name; }
 }
 
 function deleteProject(){
