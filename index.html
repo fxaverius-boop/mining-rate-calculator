@@ -8289,26 +8289,49 @@ function _buildPptxTBE(mode){
   s.addText('Powering Indonesia’s Mining Industry with Innovation & Sustainability',{x:0.6,y:6.58,w:10.2,h:0.92,fontSize:13,italic:true,color:WHT,fontFace:F,valign:'middle'});
   s.addText(stamp,{x:10.9,y:6.58,w:1.85,h:0.92,fontSize:12,color:'E8E8E8',align:'right',fontFace:F,valign:'middle'});
 
-  /* ================= [BOD] SLIDE 2: RESUME EKSEKUTIF ================= */
+  /* ================= [BOD] SLIDE 2: RESUME EKSEKUTIF =================
+     Sumber angka SAMA dgn slide Resume per stream (computeStreamCosts):
+     produksi & biaya dari stream yang ADA di project — bukan cache blended. */
   if(isBOD){
-    const cf=window._cfCache||{};
-    const preset0=$('preset')?.value||'ob';
-    const u=preset0==='ob'?'BCM':'Ton';
-    const prodPrj=+cf.prod||0, cost=+cf.cost||0, rev=+cf.revenue||0;
-    const usdK=+cf.usd||16500, mg=+cf.margin||1.2;
-    const hppRp=prodPrj>0?cost/prodPrj:0, hppUsd=usdK>0?hppRp/usdK:0;
-    const marginRp=rev-cost, marginPct=rev>0?marginRp/rev*100:0;
-    const _yrs=+($('years')?.value)||3;               /* lokal: yrsP/usdFmt dideklarasi di bawah (TDZ) */
+    const _yrs=+($('years')?.value)||3;               /* lokal: yrsP/usdFmt/scMargin dideklarasi di bawah (TDZ) */
     const _usd4=v=>'$ '+(+v||0).toFixed(4);
+    const _mgn=(window.streamRateMargin || +($('margin')?.value) || 1.2);
+    const usdK=+($('usd')?.value)||16500;
+    let _sc0=null; try{ _sc0=(typeof computeStreamCosts==='function')?computeStreamCosts():null; }catch(e){}
+    const SNAME={ob:['OB','BCM'], coal_get:['Coal Getting','Ton'], coal_haul:['Coal Hauling','Ton'], rental:['Rental','Jam'], hrm:['HRM','Ton']};
+    /* Kumpulkan stream aktif (total project > 0) — komponen mengikuti isi project */
+    const act=[];
+    if(_sc0 && _sc0.totalByStreamPrj){
+      Object.keys(_sc0.totalByStreamPrj).forEach(sk=>{
+        const t=+_sc0.totalByStreamPrj[sk]||0; if(t<=0) return;
+        const nm=SNAME[sk]||[sk,'unit'];
+        act.push({sk, name:nm[0], unit:nm[1], total:t,
+          prj:+((_sc0.prodPrj||{})[sk])||0, rateUSD:+((_sc0.rateUSD||{})[sk])||0});
+      });
+    }
+    const cost=act.length?act.reduce((a,s)=>a+s.total,0):(+((window._cfCache||{}).cost)||0);
+    const rev=cost*_mgn, marginRp=rev-cost, marginPct=rev>0?marginRp/rev*100:0;
+    /* Tampilan per stream: 1 stream → angka besar; multi → digabung ringkas */
+    const one=act.length===1?act[0]:null;
+    const prodVal=one?Math.round(one.prj).toLocaleString('id-ID')
+                     :(act.length?act.map(s=>Math.round(s.prj).toLocaleString('id-ID')+' '+s.unit).join('  ·  '):'—');
+    const prodSub=one?(one.unit+' · '+_yrs+' tahun'):(_yrs+' tahun · '+(act.length?act.map(s=>s.name).join(' + '):'—'));
+    const hppUsdVal=one?_usd4(one.rateUSD):(act.length?act.map(s=>s.name.split(' ')[0]+' '+_usd4(s.rateUSD)).join(' · '):'—');
+    const hppRpVal=one?('Rp '+Math.round(one.rateUSD*usdK).toLocaleString('id-ID'))
+                      :(act.length?act.map(s=>s.name.split(' ')[0]+' Rp '+Math.round(s.rateUSD*usdK).toLocaleString('id-ID')).join(' · '):'—');
+    const hppSub=one?('per '+one.unit):'per unit stream';
+    /* Kebutuhan Modal Awal — sama dgn Cashflow M0 (DP alat + CAPEX infra) */
+    let modal=0, ma0=null; try{ ma0=(typeof computeModalAwal==='function')?computeModalAwal():null; if(ma0) modal=(+ma0.dpEquip||0)+(+ma0.capexInfra||0); }catch(e){}
     let se=P.addSlide(); header(se,'Resume Eksekutif');
     /* Baris 1: Produksi · Total Cost · Revenue */
-    kpiBox(se,0.4, 1.25,4.05,'🎯 TOTAL PRODUKSI / PROJECT',Math.round(prodPrj).toLocaleString('id-ID'),u+' · '+_yrs+' tahun',GREEN);
+    kpiBox(se,0.4, 1.25,4.05,'🎯 TOTAL PRODUKSI / PROJECT',prodVal,prodSub,GREEN);
     kpiBox(se,4.65,1.25,4.05,'💰 TOTAL COST / PROJECT',rp(cost),'seluruh biaya project',RED);
-    kpiBox(se,8.9, 1.25,4.03,'💵 REVENUE / PROJECT',rp(rev),'markup ×'+mg.toFixed(2),TEAL);
-    /* Baris 2: HPP $ · HPP Rp · Margin */
-    kpiBox(se,0.4, 2.95,4.05,'📉 HPP ($/'+u+')',_usd4(hppUsd),'kurs Rp '+Math.round(usdK).toLocaleString('id-ID'),NAVY);
-    kpiBox(se,4.65,2.95,4.05,'📉 HPP (Rp/'+u+')','Rp '+Math.round(hppRp).toLocaleString('id-ID'),'per '+u,ORANGE);
-    kpiBox(se,8.9, 2.95,4.03,'📈 MARGIN',rp(marginRp),marginPct.toFixed(1)+'% dari revenue',PURPLE);
+    kpiBox(se,8.9, 1.25,4.03,'💵 REVENUE / PROJECT',rp(rev),'markup ×'+_mgn.toFixed(2),TEAL);
+    /* Baris 2: HPP $ · HPP Rp · Margin · Modal Awal (4 kotak spt slide stream) */
+    kpiBox(se,0.4, 2.95,3.05,'📉 HPP ($)',hppUsdVal,'kurs Rp '+Math.round(usdK).toLocaleString('id-ID'),NAVY);
+    kpiBox(se,3.6, 2.95,3.05,'📉 HPP (Rp)',hppRpVal,hppSub,ORANGE);
+    kpiBox(se,6.8, 2.95,3.05,'📈 MARGIN',rp(marginRp),marginPct.toFixed(1)+'% dari revenue',PURPLE);
+    kpiBox(se,10.0,2.95,2.95,'🏦 MODAL AWAL',rp(modal),'DP alat + CAPEX infra (M0)',BLUE);
     /* Komposisi biaya ringkas (layer TCO) */
     se.addText('Komposisi Biaya / Project',{x:0.4,y:4.75,w:12,h:0.32,fontSize:13,bold:true,color:NAVY,fontFace:F});
     smallTbl(se,['Layer Biaya','Nilai (Rp)','% Total'],[
