@@ -4033,6 +4033,16 @@ function cfSetFlat(v){ cfState.flat=(v===''||v==null)?null:(+v||0); cfState.prod
 function cfSetRate(v){ cfState.rate=(v===''||v==null)?null:(+v||0); if(typeof markDirty==='function') markDirty(); cfRender(); }
 function cfSetTenor(v){ cfState.tenorYears=(v===''||v==null)?null:Math.max(1,+v||1); if(typeof markDirty==='function') markDirty(); cfRender(); }
 function cfResetProd(){ cfState.prod={}; if(typeof markDirty==='function') markDirty(); cfRender(); }
+/* Min Hour PER-UNIT rental (input di kartu 💎 Rental Cost). Disimpan di equip[i].minHr
+   (jam/bln) → ikut snapshot & sync. Kosong = ikut global prod_rental_minhr. */
+function tcoSetUnitMinHr(i,v){
+  if(!equip[i]) return;
+  if(v===''||v==null){ delete equip[i].minHr; }
+  else equip[i].minHr=Math.max(0,+v||0);
+  if(typeof markDirty==='function') markDirty();
+  try{ calc(); }catch(e){}
+  try{ tcoRender(); }catch(e){}
+}
 
 /* ================================================================
    ANALISIS FINANSIAL (tab) — NPV · IRR · Pajak, per stream (OB & Coal Getting).
@@ -10610,9 +10620,15 @@ function computeStreamCosts(){
     if(v>0) sharedItems.push({cost:v, targets:(e.shareTo&&e.shareTo.length)?shareTargets(e):ALL_SHARE_STREAMS});
   });
   const totalShared = plantMP + overheadMP + akomSharedYr + supOpexYr + sharedEquipYr;
-  /* Rental: jumlah unit ter-tag rental & total unit-hours (unit × min hour/yr). */
+  /* Rental: jumlah unit ter-tag rental & total unit-hours — PER-UNIT AWARE:
+     e.minHr (jam/bln, input kartu Rental Cost) menang; kosong → global prod_rental_minhr. */
   const rentalUnits = qtyByStream.rental;
-  const rentalUnitHours = rentalUnits * rentalMinHr;   /* unit-hours/tahun */
+  const rentalUnitHours = equip.reduce((a,e)=>{
+    if(e.stream!=='rental' || !((+e.qty)>0)) return a;
+    const mh=(+e.minHr>0)?+e.minHr:rentalMinHrMo;
+    return a + (+e.qty)*mh*12;                         /* unit-hours/tahun */
+  },0);
+  const rentalMinHrEff = rentalUnits>0 ? rentalUnitHours/rentalUnits : rentalMinHr; /* rata-rata HM/yr per unit (display) */
   /* === Distribusi shared PER-ITEM ke stream target (shareTo) via basis weight. ===
      Tiap item dibagi proporsional basis (capex/qty/produksi) HANYA ke stream targetnya. */
   const _Wmap = { capex:capexByStream, qty:qtyByStream,
@@ -10684,7 +10700,7 @@ function computeStreamCosts(){
     capexByStream, qtyByStream, basis, operByStream, totalOpProdQty, totalOperatorIDR,
     taggedOpStreams: Array.from(_taggedOpStreams),
     prod:{ ob:prodOB, coal_get:prodCoal, coal_haul:prodHaulTk, rental:rentalUnitHours, hrm:hrmDist },
-    haulTon, haulDist, rentalUnits, rentalMinHr, rentalUnitHours, hrmDist,  /* untuk breakdown HPP */
+    haulTon, haulDist, rentalUnits, rentalMinHr:rentalMinHrEff, rentalUnitHours, hrmDist,  /* untuk breakdown HPP (minHr = rata-rata efektif) */
     rentalScheme, riskPctSC, rentalSchemeTotal,                    /* rental skema lama (gated) + risk */
     /* NEW project-level + verification data */
     years, hrs, directPrj, directEquipPrj, operPrj, taggedPrj, sharedPrj, totalByStreamPrj, prodPrj, ptyPerHr };
@@ -10894,7 +10910,7 @@ function renderRentalUnitDetail(elId){
   const poolFleet = _oper + _shr;
   const poolPerUnit = rentalUnits>0 ? poolFleet/rentalUnits : 0;
   const rentalEq = equip.filter(e => e.qty>0 && e.price>0 && (e.stream==='rental'));
-  if(rentalEq.length===0 || minHr<=0){
+  if(rentalEq.length===0 || (minHr<=0 && !rentalEq.some(e=>(+e.minHr)>0))){
     el.innerHTML = `<div class="text-[11px] p-3" style="color:#a8a29e;font-style:italic;background:#14110e;border:1px dashed #3d342a;border-radius:6px">
       ${rentalEq.length===0 ? '— Belum ada equipment di-tag <b style="color:#fbbf24">💰 Rental</b> di Equipment Cost. —' : '— Isi <b style="color:#fbbf24">Min Hour/unit/yr</b> di Production Streams untuk hitung HPP rental/jam. —'}
     </div>`;
@@ -10910,7 +10926,8 @@ function renderRentalUnitDetail(elId){
     const key = `${e.cat}|${e.merk||''}|${e.model||''}`;
     const maintYr1 = (maintByKey[key]||0)/q;  /* maint per 1 unit/yr */
     const hppYr1 = (ownYr1 + maintYr1 + poolPerUnit) * (1 + riskPct);  /* + risk premium (skema lama) */
-    const hppHr  = minHr>0 ? hppYr1/minHr : 0;
+    const mhYr1  = ((+e.minHr>0)?(+e.minHr):minHrMo)*12;               /* per-unit minHr menang */
+    const hppHr  = mhYr1>0 ? hppYr1/mhYr1 : 0;
     const hppMo  = hppYr1/12;            /* /bulan = HPP/yr ÷ 12 (= HPP/jam × MinHour/12) */
     const hppDay = hppMo/30;             /* /hari = /bulan ÷ 30 hari kalender */
     rows += `<tr style="border-bottom:1px dotted #2a2520">
@@ -11699,8 +11716,10 @@ function tcoRender(){
       let costPerUnitYr = (ownAnnualPerUnit + maintPerUnitYr + plantPerUnitYr + operPerUnitYr + capexSupPerUnitYr + allocPerUnitYr) * (1 + riskPct);
       /* Basis: Min Hour rental per BULAN (mis. 300 jam). HPP/bln = biaya bulanan;
          HPP/jam = HPP/bln ÷ Min Hour; HPP/hari = HPP/bln ÷ 30.
-         Fallback ke Working Hrs/Year ÷ 12 kalau Min Hour 0. */
-      const _minHrMo = +($('prod_rental_minhr')?.value) || 0;
+         PER-UNIT: e.minHr (input di kartu) menang; kosong → global; fallback hrs/12. */
+      const _globalMinHrMo = +($('prod_rental_minhr')?.value) || 0;
+      const _minHrMo = (+e.minHr>0) ? +e.minHr : _globalMinHrMo;
+      const _eIdx = equip.indexOf(e);
       const hppPerMo  = costPerUnitYr / 12;
       const _hrMoDiv  = _minHrMo>0 ? _minHrMo : (hrs/12);
       const hppPerHr  = _hrMoDiv>0 ? (hppPerMo / _hrMoDiv) : 0;
@@ -11785,7 +11804,10 @@ function tcoRender(){
               <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:240px" title="${e.cat}: ${e.model}">${e.model}</span>
               ${evBadge}
             </div>
-            <div class="text-[11px] mt-1" style="color:#a8a29e">${e.cat} · <span style="color:#fbbf24">${qty}</span> unit</div>
+            <div class="text-[11px] mt-1" style="color:#a8a29e;display:flex;align-items:center;gap:6px;flex-wrap:wrap">${e.cat} · <span style="color:#fbbf24">${qty}</span> unit
+              <span style="color:#22d3ee;font-weight:700;letter-spacing:.3px;margin-left:8px">⏱ MIN HOUR/BLN</span>
+              <input type="number" min="0" step="10" value="${(+e.minHr>0)?+e.minHr:''}" placeholder="${_globalMinHrMo||0}" onchange="tcoSetUnitMinHr(${_eIdx},this.value)" class="num-in mono" style="width:74px;padding:2px 6px;font-size:11px;border-color:#155e75;color:#22d3ee" title="Jam sewa minimum per bulan untuk unit INI — dipakai hitung HPP/Jam & tabel Cashflow. Kosongkan → ikut global Rental Config (${_globalMinHrMo} jam).">
+              <span style="color:#78716c">jam</span></div>
           </div>
           <div class="text-right" style="flex-shrink:0">
             <div class="text-[10px]" style="color:#a8a29e;letter-spacing:.5px">RATE${periodLabel.toUpperCase()}/UNIT</div>
