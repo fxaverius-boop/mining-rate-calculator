@@ -8311,7 +8311,35 @@ function _buildPptxTBE(mode){
   /* ================= [BOD] SLIDE 2: RESUME EKSEKUTIF =================
      Sumber angka SAMA dgn slide Resume per stream (computeStreamCosts):
      produksi & biaya dari stream yang ADA di project — bukan cache blended. */
-  if(isBOD){
+  if(isBOD && (($('preset')?.value)||'').indexOf('rental')===0){
+    /* ---- KHUSUS RENTAL: Lama Kontrak, Total Biaya, HPP & Rate per UNIT, Revenue, Margin, Modal ----
+       Sumber = _tcoRentalUnits (HPP detail kartu 💎 Rental Cost, di-set tcoRender di atas)
+       × margin rental (_tcoRentalMargin) — angka SAMA dgn kartu TCO & tabel Cashflow. */
+    const _yrs=+($('years')?.value)||3;
+    const rl=(window._tcoRentalUnits||[]).filter(u=>u.qty>0);
+    const rMg=(typeof window._tcoRentalMargin==='number'&&window._tcoRentalMargin>0)?window._tcoRentalMargin:1.2;
+    const revMo=rl.reduce((a,u)=>a+u.hppPerMo*rMg*u.qty,0);          /* total sewa/bln (= revenue cashflow) */
+    const costPrj=rl.reduce((a,u)=>a+u.hppPerYr*u.qty,0)*_yrs;       /* total biaya project */
+    const revPrj=revMo*12*_yrs;
+    const marginRp=revPrj-costPrj, marginPct=revPrj>0?marginRp/revPrj*100:0;
+    let modal=0; try{ const m0=(typeof computeModalAwal==='function')?computeModalAwal():null; if(m0) modal=(+m0.dpEquip||0)+(+m0.capexInfra||0); }catch(e){}
+    let se=P.addSlide(); header(se,'Resume Eksekutif — Rental');
+    kpiBox(se,0.4, 1.22,4.05,'📅 LAMA KONTRAK',_yrs+' tahun',(12*_yrs)+' bulan sewa',NAVY);
+    kpiBox(se,4.65,1.22,4.05,'💰 TOTAL BIAYA PROJECT',rp(costPrj),'seluruh biaya '+_yrs+' tahun',RED);
+    kpiBox(se,8.9, 1.22,4.03,'💵 REVENUE / PROJECT',rp(revPrj),'sewa/bln × '+(12*_yrs)+' bulan',TEAL);
+    kpiBox(se,0.4, 2.92,4.05,'💵 SEWA / BULAN',rp(revMo),'Σ rate/bln × qty (markup ×'+rMg.toFixed(2)+')',PURPLE);
+    kpiBox(se,4.65,2.92,4.05,'📈 MARGIN',rp(marginRp),marginPct.toFixed(1)+'% dari revenue',GREEN);
+    kpiBox(se,8.9, 2.92,4.03,'🏦 MODAL AWAL',rp(modal),'DP alat + CAPEX infra (M0)',BLUE);
+    se.addText('HPP & Rate Recommendation per Unit (per bulan)',{x:0.4,y:4.62,w:12,h:0.3,fontSize:13,bold:true,color:NAVY,fontFace:F});
+    const MAXR=7;
+    const unitRows=rl.slice(0,MAXR).map(u=>[u.name, String(u.qty), Math.round(u.minHrMo).toLocaleString('id-ID')+' jam',
+      rp(u.hppPerMo), rp(u.hppPerMo*rMg), rp(u.hppPerMo*rMg*u.qty)]);
+    if(rl.length>MAXR) unitRows.push(['… +'+(rl.length-MAXR)+' unit lainnya','','','','','']);
+    unitRows.push(['TOTAL SEWA / BULAN','','','','',rp(revMo)]);
+    posTbl(se,['Unit','Qty','Min Hr/Bln','HPP /Bln/Unit','Rate Recom /Bln/Unit','Subtotal /Bln'],
+      unitRows.length>1?unitRows:[['(tak ada unit rental)','','','','','']],[3.5,0.7,1.35,2.4,2.5,2.1],0.4,4.95,12.55,0.26);
+  }
+  else if(isBOD){
     const _yrs=+($('years')?.value)||3;               /* lokal: yrsP/usdFmt/scMargin dideklarasi di bawah (TDZ) */
     const _usd4=v=>'$ '+(+v||0).toFixed(4);
     const _mgn=(window.streamRateMargin || +($('margin')?.value) || 1.2);
