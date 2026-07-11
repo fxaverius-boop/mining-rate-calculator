@@ -8327,16 +8327,18 @@ function _buildPptxTBE(mode){
     kpiBox(se,0.4, 1.22,4.05,'📅 LAMA KONTRAK',_yrs+' tahun',(12*_yrs)+' bulan sewa',NAVY);
     kpiBox(se,4.65,1.22,4.05,'💰 TOTAL BIAYA PROJECT',rp(costPrj),'seluruh biaya '+_yrs+' tahun',RED);
     kpiBox(se,8.9, 1.22,4.03,'💵 REVENUE / PROJECT',rp(revPrj),'sewa/bln × '+(12*_yrs)+' bulan',TEAL);
-    kpiBox(se,0.4, 2.92,4.05,'💵 SEWA / BULAN',rp(revMo),'Σ rate/bln × qty (markup ×'+rMg.toFixed(2)+')',PURPLE);
+    kpiBox(se,0.4, 2.92,4.05,'💵 SEWA / BULAN',rp(revMo),'Σ Qty × Min Hr × Rate/Jam (markup ×'+rMg.toFixed(2)+')',PURPLE);
     kpiBox(se,4.65,2.92,4.05,'📈 MARGIN',rp(marginRp),marginPct.toFixed(1)+'% dari revenue',GREEN);
     kpiBox(se,8.9, 2.92,4.03,'🏦 MODAL AWAL',rp(modal),'DP alat + CAPEX infra (M0)',BLUE);
-    se.addText('HPP & Rate Recommendation per Unit (per bulan)',{x:0.4,y:4.62,w:12,h:0.3,fontSize:13,bold:true,color:NAVY,fontFace:F});
+    se.addText('HPP & Rate Recommendation per Unit (per jam) — Subtotal = Qty × Min Hr × Rate Recom/Jam',{x:0.4,y:4.62,w:12.55,h:0.3,fontSize:13,bold:true,color:NAVY,fontFace:F});
     const MAXR=7;
+    /* Subtotal = qty × minHr × rate/jam — identik qty × hppPerMo × margin (hppPerHr = hppPerMo ÷ minHr),
+       dipakai bentuk hppPerMo agar tetap benar saat Min Hr kosong (fallback jam kerja). */
     const unitRows=rl.slice(0,MAXR).map(u=>[u.name, String(u.qty), Math.round(u.minHrMo).toLocaleString('id-ID')+' jam',
-      rp(u.hppPerMo), rp(u.hppPerMo*rMg), rp(u.hppPerMo*rMg*u.qty)]);
+      rp(u.hppPerHr), rp(u.hppPerHr*rMg), rp(u.hppPerMo*rMg*u.qty)]);
     if(rl.length>MAXR) unitRows.push(['… +'+(rl.length-MAXR)+' unit lainnya','','','','','']);
     unitRows.push(['TOTAL SEWA / BULAN','','','','',rp(revMo)]);
-    posTbl(se,['Unit','Qty','Min Hr/Bln','HPP /Bln/Unit','Rate Recom /Bln/Unit','Subtotal /Bln'],
+    posTbl(se,['Unit','Qty','Min Hr/Bln','HPP /Jam/Unit','Rate Recom /Jam/Unit','Subtotal /Bln'],
       unitRows.length>1?unitRows:[['(tak ada unit rental)','','','','','']],[3.5,0.7,1.35,2.4,2.5,2.1],0.4,4.95,12.55,0.26);
   }
   else if(isBOD){
