@@ -1172,6 +1172,12 @@
           <div style="font-size:18px;font-weight:800;color:#fbbf24;letter-spacing:.3px">💎 RENTAL COST — Per Unit</div>
           <div class="text-[11px] mt-1" style="color:#d6a15c">Direct attribution + shared allocation · cost <b>tidak bundle</b> per unit</div>
         </div>
+        <!-- Margin % untuk Rate Recommendation rental (kosong → ikut Margin utama) -->
+        <div class="flex items-center gap-2" style="padding:4px 10px;background:#14110e;border:1px solid #3f6212;border-radius:8px">
+          <span class="text-[10px]" style="color:#84cc16;font-weight:800;letter-spacing:.4px">🎯 MARGIN RATE</span>
+          <input type="number" id="rental_margin_pct" class="num-in mono" min="0" step="1" style="width:64px;padding:3px 6px;font-size:12px;border-color:#3f6212;color:#84cc16" placeholder="20" onchange="saveScenario();tcoRender()" title="Persen markup di atas HPP untuk Rate Recommendation rental. Kosongkan → ikut Margin utama Calculator (mis. 1.20 = 20%).">
+          <span class="text-[10px]" style="color:#84cc16">%</span>
+        </div>
         <!-- Scheme selector — 3 pills, klik untuk switch (auto recalc) -->
         <div class="flex items-center gap-1" style="padding:4px;background:#14110e;border:1px solid #78350f;border-radius:8px">
           <button onclick="setRentalScheme('dry')" id="tco_scheme_dry"
@@ -7822,7 +7828,7 @@ function _resetCalculatorToDefaults(){
   [['years','3'],['usd','16500'],['qnty','1'],['pa','0.85'],['ua','0.55'],['hrs','8760'],['adj','1.3'],['margin','1.2'],
    ['l_eff','0.9'],['l_prep','60'],
    ['h_eff','0.9'],['h_dt','60'],['h_dp','60'],['h_lp','60'],['h_dist','1'],['maint','0'],['maint_factor','100'],['mp_ratio','2.7'],['akom_cost','2000000'],
-   ['rental_life','5'],['rental_ins','3'],['rental_fin','0'],['rental_risk','10'],['rental_dp','0'],['prod_ob_bcm','0'],['prod_coal_ton','0'],['prod_haul_tonkm','0'],['prod_haul_ton','0'],['prod_haul_dist','0'],['prod_rental_minhr','0'],['prod_hrm_dist','0']
+   ['rental_life','5'],['rental_ins','3'],['rental_fin','0'],['rental_risk','10'],['rental_dp','0'],['rental_margin_pct',''],['prod_ob_bcm','0'],['prod_coal_ton','0'],['prod_haul_tonkm','0'],['prod_haul_ton','0'],['prod_haul_dist','0'],['prod_rental_minhr','0'],['prod_hrm_dist','0']
   ].forEach(([k,v])=>{ if($(k)) $(k).value=v });
   if($('l_merk')){ $('l_merk').value='Komatsu'; updateLoaderModels('PC500LC-10 (PC500 class)'); }
   if($('h_merk')){ $('h_merk').value='Hino'; updateHaulerModels('FM 260 JD (Dutro 260)'); }
@@ -7835,7 +7841,7 @@ function snapshotScenario(){
     preset:g('preset'),
     project:{years:g('years'),usd:g('usd'),qnty:g('qnty'),pa:g('pa'),ua:g('ua'),hrs:g('hrs'),adj:g('adj'),margin:g('margin'),mp_ratio:g('mp_ratio'),akom_cost:g('akom_cost'),
             rental_scheme:g('rental_scheme'),rental_life:g('rental_life'),rental_ins:g('rental_ins'),rental_fin:g('rental_fin'),rental_risk:g('rental_risk'),
-            rental_dp:g('rental_dp'),rental_dp_to_dep:($('rental_dp_to_dep')?.checked ? '1':'0'),
+            rental_dp:g('rental_dp'),rental_dp_to_dep:($('rental_dp_to_dep')?.checked ? '1':'0'),rental_margin_pct:g('rental_margin_pct'),
             lamp_day_per_month:g('lamp_day_per_month'),lamp_month_per_year:g('lamp_month_per_year'),
             mc_dp_pct:g('mc_dp_pct'),mc_months:g('mc_months'),mc_incl_capex_infra:($('mc_incl_capex_infra')?.checked ? '1':'0'),
             prod_ob_bcm:g('prod_ob_bcm'),prod_coal_ton:g('prod_coal_ton'),prod_haul_tonkm:g('prod_haul_tonkm'),
@@ -8010,6 +8016,9 @@ function _applyScenario(d){
   if(d.project) Object.entries(d.project).forEach(([k,v])=>{
     /* checkbox fields di-stored sebagai '1'/'0'; treat khusus */
     if((k==='rental_dp_to_dep' || k==='mc_incl_capex_infra') && $(k)){ $(k).checked = (v==='1' || v===1 || v===true); return; }
+    /* rental_margin_pct: '' bermakna "ikut Margin utama" — HARUS ikut di-apply
+       (set() skip string kosong → nilai project lama bisa nyangkut saat switch). */
+    if(k==='rental_margin_pct' && $(k)){ $(k).value=(v==null?'':v); return; }
     if(k==='stream_rate_margin'){ window.streamRateMargin = (+v)||1.2; return; } /* window var, bukan DOM */
     set(k,v);
   });
@@ -9094,7 +9103,7 @@ function resetDefaults(){
   [['years','3'],['usd','16500'],['qnty','1'],['pa','0.85'],['ua','0.55'],['hrs','8760'],['adj','1.3'],['margin','1.2'],
    ['l_eff','0.9'],['l_prep','60'],
    ['h_eff','0.9'],['h_dt','60'],['h_dp','60'],['h_lp','60'],['h_dist','1'],['maint','0'],['maint_factor','100'],['mp_ratio','2.7'],['akom_cost','2000000'],
-   ['rental_life','5'],['rental_ins','3'],['rental_fin','0'],['rental_risk','10'],['rental_dp','0'],['prod_ob_bcm','0'],['prod_coal_ton','0'],['prod_haul_tonkm','0'],['prod_haul_ton','0'],['prod_haul_dist','0'],['prod_rental_minhr','0'],['prod_hrm_dist','0']
+   ['rental_life','5'],['rental_ins','3'],['rental_fin','0'],['rental_risk','10'],['rental_dp','0'],['rental_margin_pct',''],['prod_ob_bcm','0'],['prod_coal_ton','0'],['prod_haul_tonkm','0'],['prod_haul_ton','0'],['prod_haul_dist','0'],['prod_rental_minhr','0'],['prod_hrm_dist','0']
   ].forEach(([k,v])=>{ if($(k)) $(k).value=v });
   $('l_merk').value='Komatsu'; updateLoaderModels('PC500LC-10 (PC500 class)');
   $('h_merk').value='Hino'; updateHaulerModels('FM 260 JD (Dutro 260)');
@@ -11446,6 +11455,12 @@ function tcoRender(){
     const dpToDep    = ($('rental_dp_to_dep')?.checked !== false); /* default true */
     const scheme     = $('rental_scheme')?.value || 'full';
     const margin     = cs.margin || 1.2;
+    /* Margin % khusus rental (input header panel) — kosong → ikut Margin utama.
+       Dipakai Rate Recommendation kartu + diekspor ke Cashflow (_tcoRentalMargin). */
+    const _rmEl=$('rental_margin_pct');
+    if(_rmEl) _rmEl.placeholder=((margin-1)*100).toFixed(0);
+    const _rmRaw=_rmEl?_rmEl.value:'';
+    const rMargin=(_rmRaw!==''&&_rmRaw!=null)?(1+(+_rmRaw||0)/100):margin;
     /* Aggregate maintenance per equip signature.
        Juga track labor portion (sched labor) supaya Plant MP allocation tidak double-count
        — labor di maintenance.year sudah include man-hours mekanik × labor rate. */
@@ -11724,7 +11739,7 @@ function tcoRender(){
       const _hrMoDiv  = _minHrMo>0 ? _minHrMo : (hrs/12);
       const hppPerHr  = _hrMoDiv>0 ? (hppPerMo / _hrMoDiv) : 0;
       const hppPerDay = hppPerMo / 30;
-      const ratePeriod = cs.mode==='rental_day' ? hppPerDay*margin : (cs.mode==='rental_mo' ? hppPerMo*margin : hppPerHr*margin);
+      const ratePeriod = cs.mode==='rental_day' ? hppPerDay*rMargin : (cs.mode==='rental_mo' ? hppPerMo*rMargin : hppPerHr*rMargin);
       totOwn   += ownAnnualPerUnit * qty;
       totMaint += maintPerUnitYr * qty;
       totPlant += plantPerUnitYr * qty;
@@ -11841,6 +11856,13 @@ function tcoRender(){
           <div class="text-center"><div class="text-[9px]" style="color:#a8a29e">HPP/DAY</div><div class="mono" style="color:#fbbf24;font-weight:700;font-size:12px">Rp ${fmt(hppPerDay)}</div></div>
           <div class="text-center"><div class="text-[9px]" style="color:#a8a29e">HPP/MO</div><div class="mono" style="color:#fbbf24;font-weight:700;font-size:12px">Rp ${fmt(hppPerMo)}</div></div>
         </div>
+        <!-- Rate Recommendation = HPP × margin rate -->
+        <div class="grid grid-cols-3 gap-2 mt-2 pt-2" style="border-top:1px dashed #3f6212">
+          <div class="text-center"><div class="text-[9px]" style="color:#84cc16">RATE/HR</div><div class="mono" style="color:#84cc16;font-weight:800;font-size:12px">Rp ${fmt(hppPerHr*rMargin)}</div></div>
+          <div class="text-center"><div class="text-[9px]" style="color:#84cc16">RATE/DAY</div><div class="mono" style="color:#84cc16;font-weight:800;font-size:12px">Rp ${fmt(hppPerDay*rMargin)}</div></div>
+          <div class="text-center"><div class="text-[9px]" style="color:#84cc16">RATE/MO</div><div class="mono" style="color:#84cc16;font-weight:800;font-size:12px">Rp ${fmt(hppPerMo*rMargin)}</div></div>
+        </div>
+        <div class="text-[9px] mt-1 text-center" style="color:#84cc16">🎯 Rate Recommendation = HPP × ${rMargin.toFixed(2)} (margin ${((rMargin-1)*100).toFixed(0)}%)</div>
         <div class="text-[10px] mt-2 text-center" style="color:#fef3c7">
           Total Cost <b style="color:#fef3c7">Rp ${fmt(costPerUnitYr)}</b>/unit/yr
         </div>
@@ -11848,7 +11870,7 @@ function tcoRender(){
     }).join('');
     $('tco_rental_perunit_cards').innerHTML = rows;
     window._tcoRentalUnits = _rentalUnitsExport;   /* dibaca tab Cashflow (basis Rental) */
-    window._tcoRentalMargin = margin;              /* margin rate kartu TCO → default Cashflow */
+    window._tcoRentalMargin = rMargin;             /* margin rate rental (input %) → default Cashflow */
     /* Fleet total summary — totSum sudah include risk; kalikan tahun kontrak untuk total project */
     const fleetTotalProject = totSum * years;
     $('tco_rental_fleet_total').innerHTML = `
