@@ -3843,9 +3843,10 @@ function cfCompute(){
   /* Rate & alokasi per-stream dari TCO (computeStreamCosts). */
   let _sc=null; try{ _sc = (typeof computeStreamCosts==='function') ? computeStreamCosts() : null; }catch(e){}
   const usdRp = +cf.usd || 16500;
-  /* Basis: OB (BCM) / Coal Getting (Ton) / Rental (Jam — minimal hour). */
-  const basis = (cfState.basis==='coal') ? 'coal' : (cfState.basis==='rental' ? 'rental' : 'ob');
-  const unit  = basis==='coal' ? 'Ton' : (basis==='rental' ? 'Jam' : 'BCM');
+  /* Basis: OB (BCM) / Coal Getting (Ton) / Coal Hauling (Ton × Km) / Rental (Jam). */
+  const basis = (cfState.basis==='coal') ? 'coal' : (cfState.basis==='rental' ? 'rental' : (cfState.basis==='haul' ? 'haul' : 'ob'));
+  const unit  = (basis==='coal'||basis==='haul') ? 'Ton' : (basis==='rental' ? 'Jam' : 'BCM');
+  const haulDist = +($('prod_haul_dist')?.value)||0;   /* jarak hauling (Km) — revenue haul = prod × jarak × rate */
   /* Margin markup rate — bisa diatur di kontrol Cashflow. Default RENTAL = margin kartu TCO
      (window._tcoRentalMargin) agar angka SAMA PERSIS dgn kartu "Rental per Unit"; lainnya = stream margin. */
   const _mgnDef = (basis==='rental' && typeof window._tcoRentalMargin==='number' && window._tcoRentalMargin>0)
@@ -3868,10 +3869,13 @@ function cfCompute(){
     rateIDR  = (cfState.rate!=null && cfState.rate!=='') ? (+cfState.rate||0)*usdRp : autoRate;
     rateUSD  = rateIDR/usdRp;
   } else {
-    streamAnnual = basis==='coal' ? (+($('prod_coal_ton')?.value)||0) : (+($('prod_ob_bcm')?.value)||0);
+    streamAnnual = basis==='coal' ? (+($('prod_coal_ton')?.value)||0)
+                 : basis==='haul' ? (+($('prod_haul_ton')?.value)||0)
+                 : (+($('prod_ob_bcm')?.value)||0);
     autoFlat = streamAnnual>0 ? streamAnnual/12 : (N>0 ? (cf.prod||0)/N : 0);
-    const scRate = (_sc && _sc.rateUSD) ? ((basis==='coal' ? (+_sc.rateUSD.coal_get||0) : (+_sc.rateUSD.ob||0)) * mgn) : 0;
-    autoRate = scRate>0 ? scRate : (basis==='coal' ? (+cf.rateTon||0) : (+cf.rateBcm||0));
+    /* Rate per basis: coal_haul dalam $/Ton/Km (revenue = prod × jarak × rate). */
+    const scRate = (_sc && _sc.rateUSD) ? ((basis==='coal' ? (+_sc.rateUSD.coal_get||0) : basis==='haul' ? (+_sc.rateUSD.coal_haul||0) : (+_sc.rateUSD.ob||0)) * mgn) : 0;
+    autoRate = scRate>0 ? scRate : (basis==='coal' ? (+cf.rateTon||0) : basis==='haul' ? 0 : (+cf.rateBcm||0));
     rateUSD  = (cfState.rate!=null && cfState.rate!=='') ? (+cfState.rate||0) : autoRate;
     rateIDR  = rateUSD * usdRp;
   }
@@ -3900,8 +3904,9 @@ function cfCompute(){
     const p = isOp ? (prod[t]||0) : 0;
     const src = t - lag;
     /* Rental: revenue/bln FIXED = TOTAL Subtotal/Bulan tabel alat (SESUAI TCO), tak ikut sel Jam.
+       Coal Hauling: revenue = produksi (Ton) × Jarak (Km) × Rate ($/Ton/Km).
        Lainnya: revenue = produksi × Rate Rekomendasi. */
-    const revenue = (src>=1 && src<=N) ? (basis==='rental' ? rentalRevMo : (prod[src]||0)*rateIDR) : 0;
+    const revenue = (src>=1 && src<=N) ? (basis==='rental' ? rentalRevMo : (prod[src]||0)*(basis==='haul'?haulDist:1)*rateIDR) : 0;
     const capex = (t===0) ? upfront : 0;
     const annSpike = (isOp && t%12===0) ? annualCost : 0;            /* lonjakan tiap 12 bln (M12,M24,…) */
     const comp = isOp ? {inst:(t<=tenorMo?instMo:0), sal:salMonthly, maint:ma.moMaint||0, sup:supMonthly, akom:ma.moAkom||0, ann:annSpike}
@@ -3917,7 +3922,7 @@ function cfCompute(){
   const totalRev = rows.reduce((a,r)=>a+r.revenue,0);
   const totalExp = rows.reduce((a,r)=>a+r.expense,0);
   const netMargin = totalRev-totalExp;
-  return {rows,N,lag,upfront,totalRev,totalExp,netMargin,peak:-peak,breakEven:be,marginPct:totalRev>0?netMargin/totalRev*100:0,cf,ma,basis,unit,effFlat,streamAnnual,rateUSD,rateIDR,usdRp,tenorY,tenorMo,instMo,mgn,annualCost,rentalRevMo};
+  return {rows,N,lag,upfront,totalRev,totalExp,netMargin,peak:-peak,breakEven:be,marginPct:totalRev>0?netMargin/totalRev*100:0,cf,ma,basis,unit,effFlat,streamAnnual,rateUSD,rateIDR,usdRp,tenorY,tenorMo,instMo,mgn,annualCost,rentalRevMo,haulDist};
 }
 function cfRender(){
   const host=$('cf_body'); if(!host) return;
@@ -3934,19 +3939,23 @@ function cfRender(){
   html+='<label class="text-xs" style="color:#a8a29e">Termin pembayaran (bulan)<br><input type="number" min="0" value="'+M.lag+'" onchange="cfSetLag(this.value)" class="num-in mt-1" style="width:90px" title="Kas revenue masuk berapa bulan setelah produksi"></label>';
   html+='<label class="text-xs" style="color:#a8a29e">Cicilan alat (tahun)<br><input type="number" min="1" step="1" value="'+M.tenorY+'" onchange="cfSetTenor(this.value)" class="num-in mt-1" style="width:100px" title="Tenor pinjaman alat. Cicilan/bln dihitung ulang (amortisasi) & hanya berjalan '+M.tenorMo+' bln pertama."></label>';
   const isRent = M.basis==='rental';
-  const basisName = M.basis==='coal' ? 'Coal Getting' : (isRent ? 'Rental' : 'OB');
-  html+='<label class="text-xs" style="color:#a8a29e">Basis Produksi<br><select onchange="cfSetBasis(this.value)" class="num-in mt-1" style="width:170px" title="Volume ditarik dari perhitungan stream terpilih (per tahun ÷ 12)"><option value="ob"'+(M.basis==='ob'?' selected':'')+'>⛏️ OB (BCM)</option><option value="coal"'+(M.basis==='coal'?' selected':'')+'>🪨 Coal Getting (Ton)</option><option value="rental"'+(isRent?' selected':'')+'>💰 Rental (Jam)</option></select></label>';
+  const isHaul = M.basis==='haul';
+  const basisName = M.basis==='coal' ? 'Coal Getting' : (isHaul ? 'Coal Hauling' : (isRent ? 'Rental' : 'OB'));
+  html+='<label class="text-xs" style="color:#a8a29e">Basis Produksi<br><select onchange="cfSetBasis(this.value)" class="num-in mt-1" style="width:180px" title="Volume ditarik dari perhitungan stream terpilih (per tahun ÷ 12)"><option value="ob"'+(M.basis==='ob'?' selected':'')+'>⛏️ OB (BCM)</option><option value="coal"'+(M.basis==='coal'?' selected':'')+'>🪨 Coal Getting (Ton)</option><option value="haul"'+(isHaul?' selected':'')+'>🚛 Coal Hauling (Ton)</option><option value="rental"'+(isRent?' selected':'')+'>💰 Rental (Jam)</option></select></label>';
+  if(isHaul){
+    html+='<label class="text-xs" style="color:#a8a29e">Jarak (Km)<br><input type="number" min="0" step="0.5" value="'+M.haulDist+'" onchange="cfSetHaulDist(this.value)" class="num-in mt-1" style="width:90px" title="Jarak hauling (Km) — sama dgn Production Streams (prod_haul_dist). Revenue = Produksi × Jarak × Rate."></label>';
+  }
   html+='<label class="text-xs" style="color:#a8a29e">'+(isRent?'Minimal Hour /bulan (Jam)':'Produksi Bulanan flat ('+M.unit+')')+'<br><input type="number" min="0" value="'+Math.round(M.effFlat)+'" onchange="cfSetFlat(this.value)" class="num-in mt-1" style="width:140px" title="'+(isRent?'Total jam sewa minimum per bulan (= jumlah unit rental × jam minimum/unit). Kosongkan → otomatis dari Rental Config.':'Set SEMUA bulan ke nilai ini (flat). Kosongkan → otomatis dari '+basisName+'/tahun ÷ 12.')+'"></label>';
   if(isRent){
     html+='<label class="text-xs" style="color:#a8a29e">Harga Sewa Rekomendasi (Rp/Jam)<br><input type="number" step="1000" min="0" value="'+Math.round(M.rateIDR)+'" onchange="cfSetRateRp(this.value)" class="num-in mt-1" style="width:150px" title="Harga sewa rekomendasi dari TCO (HPP rental × margin), satuan Rupiah per jam — referensi tampilan. Revenue rental = TOTAL Subtotal/Bulan tabel alat (SESUAI TCO), bukan Jam × harga ini."></label>';
   } else {
-    html+='<label class="text-xs" style="color:#a8a29e">Rate Rekomendasi ($/'+M.unit+')<br><input type="number" step="0.0001" min="0" value="'+M.rateUSD.toFixed(4)+'" onchange="cfSetRate(this.value)" class="num-in mt-1" style="width:130px" title="Rate rekomendasi dari TCO. Revenue = Produksi × Rate. Kosongkan → ikut nilai TCO."></label>';
+    html+='<label class="text-xs" style="color:#a8a29e">Rate Rekomendasi ($/'+(isHaul?'Ton/Km':M.unit)+')<br><input type="number" step="0.0001" min="0" value="'+M.rateUSD.toFixed(4)+'" onchange="cfSetRate(this.value)" class="num-in mt-1" style="width:130px" title="Rate rekomendasi dari TCO. Revenue = '+(isHaul?'Produksi × Jarak × Rate':'Produksi × Rate')+'. Kosongkan → ikut nilai TCO."></label>';
   }
   html+='<button class="btn btn-sec" onclick="cfResetProd()" style="padding:5px 10px;font-size:11px" title="Hapus semua edit per-sel → kembali flat">↺ Reset ke flat</button>';
   html+='</div>';
-  html+='<div class="text-xs" style="color:#a8a29e;margin-bottom:12px">Revenue = <b style="color:#fde68a">'+(isRent?'TOTAL Subtotal/Bulan tabel alat (SESUAI TCO)':'Produksi × Rate')+'</b> · '+(isRent
+  html+='<div class="text-xs" style="color:#a8a29e;margin-bottom:12px">Revenue = <b style="color:#fde68a">'+(isRent?'TOTAL Subtotal/Bulan tabel alat (SESUAI TCO)':(isHaul?'Produksi × Jarak × Rate':'Produksi × Rate'))+'</b> · '+(isRent
     ? 'Total sewa/bln = <b style="color:#fde68a">Rp '+Math.round(M.rentalRevMo||0).toLocaleString('id-ID')+'</b> · Harga sewa ref = Rp '+Math.round(M.rateIDR).toLocaleString('id-ID')+'/Jam'
-    : 'Rate Rekomendasi TCO (<b>'+basisName+'</b>) = <b style="color:#fde68a">$'+M.rateUSD.toFixed(4)+'/'+M.unit+'</b> (≈ Rp '+cfFmtB(M.rateIDR)+'/'+M.unit+')')
+    : 'Rate Rekomendasi TCO (<b>'+basisName+'</b>) = <b style="color:#fde68a">$'+M.rateUSD.toFixed(4)+'/'+(isHaul?'Ton/Km':M.unit)+'</b> (≈ Rp '+cfFmtB(M.rateIDR)+'/'+(isHaul?'Ton/Km':M.unit)+')'+(isHaul?' · Jarak <b style="color:#fde68a">'+M.haulDist+' Km</b>':''))
     +' · kas masuk +'+M.lag+' bln · Cicilan alat <b>'+M.tenorY+' th</b> ('+cfFmtB(M.instMo)+'/bln, '+M.tenorMo+' bln) · Biaya tahunan '+cfFmtB(M.annualCost)+'/th (lonjakan tiap 12 bln) · Durasi <b>'+M.N+' bln</b> · '+(isRent?'Jam sewa':'Produksi')+' '+cfFmtB(M.streamAnnual)+' '+M.unit+'/th. Sel '+(isRent?'Jam':'Produksi')+' bisa diedit satu-satu.</div>';
   /* ----- KPI ----- */
   html+='<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px">';
@@ -4032,7 +4041,10 @@ function cfRentalUnitRows(mgn){
     return {rows:out, scheme, riskP};
   }catch(err){ return {rows:[],scheme:'full',riskP:0}; }
 }
-function cfSetBasis(v){ cfState.basis=(v==='coal'?'coal':(v==='rental'?'rental':'ob')); cfState.flat=null; cfState.rate=null; cfState.prod={}; if(typeof markDirty==='function') markDirty(); cfRender(); }
+function cfSetBasis(v){ cfState.basis=(v==='coal'?'coal':(v==='rental'?'rental':(v==='haul'?'haul':'ob'))); cfState.flat=null; cfState.rate=null; cfState.prod={}; if(typeof markDirty==='function') markDirty(); cfRender(); }
+/* Jarak hauling di kontrol Cashflow — menulis langsung ke prod_haul_dist (Production
+   Streams) supaya satu sumber; revenue haul = prod × jarak × rate. */
+function cfSetHaulDist(v){ const el=$('prod_haul_dist'); if(el) el.value=(v===''||v==null)?0:(+v||0); if(typeof markDirty==='function') markDirty(); cfRender(); }
 function cfSetRateRp(v){ const usd=(window._cfCache&&+window._cfCache.usd)||16500; cfState.rate=(v===''||v==null)?null:((+v||0)/usd); if(typeof markDirty==='function') markDirty(); cfRender(); }
 function cfSetMargin(v){ cfState.margin=(v===''||v==null)?null:(+v||0); cfState.rate=null; if(typeof markDirty==='function') markDirty(); cfRender(); }
 function cfSetFlat(v){ cfState.flat=(v===''||v==null)?null:(+v||0); cfState.prod={}; if(typeof markDirty==='function') markDirty(); cfRender(); }
@@ -4356,8 +4368,31 @@ const GEN_RULES_DEF={
   tier:{ t2Price:0.62, t2PaDelta:3, t2MaintAdd:15, usedPrice:0.55, usedPaDelta:5, usedMaintAdd:25 },
   match:{ pa:0.85, ua:0.55, passMin:4, passMax:6, prep:60, fillEff:0.9, vEff:0.9, spot:180 },
   coal:{ density:1.3 },
-  sup:{ dozerPerFleet:1, kmPerGrader:2, kmPerWT:3, kmPerVibro:3, lubePerUnits:15, lvBase:2, lvPerFleet:1, lampPerFleet:2, ftPerSite:1 },
-  mp:{ unitsPerMech:4, shifts:2, spvPerFleetShift:1 }
+  sup:{ dozerPerFleet:1, kmPerGrader:2, kmPerWT:3, kmPerVibro:3, lubePerUnits:15, lvBase:2, lvPerFleet:1, lampExcaPer:2, lampDozerPer:2, ftPerSite:1 },
+  /* Dozer pty (Handbook Komatsu Ed.30, Excel Rules/Formula/Dozer.xlsx):
+     Q = (blade × fk × 60/Cm) × os × bf × sf × je, Cm = dist/f + dist/r + z.
+     Dibekukan sesuai keputusan user: Activity=Dozing (fk .65, f 41.67, r 66.67,
+     z .25), Condition=Kering (dist 4.5 — dari sheet Parameter Calc; tabel
+     kanvas 7.5 adalah display usang), Blade Factor & Job Eff = Average. */
+  dozer:{ dist:4.5, f:41.67, r:66.67, z:0.25, fk:0.65, bf:0.80, sf:0.90, je:0.75, os:0.85,
+    grpFleets:3, grpMaxDozer:2, priceExp:1.4 },
+  /* Grader pty (Handbook Komatsu, Excel Rules/Formula/Grader.xlsx):
+     Q(m²/jam) = speed × (We − lap) × 1000 × jobEff, We = angleFactor × blade.
+     Aktivitas Spreading/Grading (fix): speed 4, jobEff 0.6; blade angle 45°
+     → angleFactor 0.7; lap 0.4. Jumlah grader = luas jalan × numGrading /
+     (Q × hoursTarget). Keputusan user: numGrading=2, road width = lebar DT
+     terlebar × 2.5 (roundup ke atas), road length = input Jarak generator. */
+  grader:{ widthMult:2.5, numGrading:2, angleFactor:0.70, lap:0.40, speed:4, jobEff:0.60,
+    hoursTarget:12, grpMaxGrader:2, priceExp:1.2 },
+  /* Manpower — struktur kontraktor tambang (pola PAMA/BUMA/SIS + KEPMEN 1827):
+     operator per kategori (produksi vs support), mekanik + leave factor,
+     supervisi span-of-control (spv per 2-3 fleet, GL per fleet/shift),
+     engineering, HSE wajib (safety/shift + per headcount, medic/shift),
+     pit control (checker), admin % headcount teknis, security per site. */
+  mp:{ shifts:2, opProd:2.7, opSup:2.3, unitsPerMech:4, leaveFactor:1.15,
+    fleetPerSpv:3, glPerFleetShift:1, engPerFleets:3, survPerFleets:5,
+    safetyPerShift:1, hcPerSafety:75, medicPerShift:1, checkerPerShift:1,
+    adminPct:10, securityQty:5 }
 };
 function genRules(){
   let s={}; try{ s=JSON.parse(localStorage.getItem(LS_GENRULES)||'{}')||{}; }catch(e){ s={}; }
@@ -4381,14 +4416,14 @@ const GEN_CLASSES={
      t1:{merk:'Komatsu', model:'PC500LC-10 (PC500 class)', price:4400000000, bucket:3.0, ct:31.2},
      t2:{merk:'XCMG', model:'XE490DK', price:null, bucket:2.5, ct:30},
      dt:{cat:'Dump Truck',
-       t1:{merk:'Hino', model:'700 ZS 4141 (SS)', price:3500000000, vessel:18, ve:45, vl:35},
-       t2:{merk:'Shacman', model:'F3000 6x4', price:1990000000, vessel:16, ve:40, vl:30}}},
+       t1:{merk:'Hino', model:'700 ZS 4141 (SS)', price:3500000000, vessel:18, ve:45, vl:35, width:2.5},
+       t2:{merk:'Shacman', model:'F3000 6x4', price:1990000000, vessel:16, ve:40, vl:30, width:2.5}}},
     {id:'exca125', label:'Excavator ~125 ton', cat:'Excavator',
      t1:{merk:'Komatsu', model:'PC1250-8', price:15000000000, bucket:6.7, ct:35},
      t2:{merk:'Zoomlion', model:'ZE1250E', price:null, bucket:6.7, ct:36},
      dt:{cat:'Dump Truck',
-       t1:{merk:'Komatsu', model:'HD465-8', price:null, vessel:36, ve:40, vl:28, notInHaulerDb:true},
-       t2:{merk:'Tonly', model:'DTH145 Hybrid Mining', price:7200000000, vessel:40, ve:40, vl:28, notInHaulerDb:true}}}
+       t1:{merk:'Komatsu', model:'HD465-8', price:null, vessel:36, ve:40, vl:28, width:4.36, notInHaulerDb:true},
+       t2:{merk:'Tonly', model:'DTH145 Hybrid Mining', price:7200000000, vessel:40, ve:40, vl:28, width:4.40, notInHaulerDb:true}}}
   ],
   support:[
     {key:'dozer', cat:'Bulldozer', label:'Dozer',
@@ -4409,6 +4444,127 @@ const GEN_CLASSES={
      t1:{merk:'Generic',model:'Tower Lamp 9kVA',price:180000000}, t2:{merk:'Generic',model:'Tower Lamp 9kVA',price:180000000}}
   ]
 };
+/* Katalog dozer per tier utk iterasi pemilihan (urut blade capacity naik).
+   blade = Semi U Tilt m³: Komatsu eksak dari Handbook Ed.30; Shantui interpolasi
+   linear kurva ton→blade Komatsu [(20,5.6)(28,8.5)(40,12.8)(49,15.3)(71,22)
+   (108,34.4)(152,45)]. Model semua ada di Equipment DB kategori Bulldozer. */
+const GEN_DOZER_DB={
+  t1:[
+    {merk:'Komatsu', model:'D65EX-18',  ton:20,  blade:5.6},
+    {merk:'Komatsu', model:'D85ESS-3',  ton:28,  blade:8.5},
+    {merk:'Komatsu', model:'D155AX-8',  ton:40,  blade:12.8},
+    {merk:'Komatsu', model:'D275AX-5',  ton:49,  blade:15.3},
+    {merk:'Komatsu', model:'D375A-8',   ton:71,  blade:22},
+    {merk:'Komatsu', model:'D475A-8',   ton:108, blade:34.4},
+    {merk:'Komatsu', model:'D575A-3 SD (Super Dozer)', ton:152, blade:45}
+  ],
+  t2:[
+    {merk:'Shantui', model:'SD16',   ton:17,  blade:4.5},
+    {merk:'Shantui', model:'SD22',   ton:23,  blade:6.7},
+    {merk:'Shantui', model:'SD32',   ton:36,  blade:11.4},
+    {merk:'Shantui', model:'SD42-3', ton:49,  blade:15.3},
+    {merk:'Shantui', model:'SD52-5', ton:66,  blade:20.5},
+    {merk:'Shantui', model:'SD65-5', ton:77,  blade:24},
+    {merk:'Shantui', model:'SD90-5', ton:100, blade:31.6}
+  ]
+};
+/* Produktivitas dozing satu dozer (m³/jam) — rumus Excel Dozer_PTY I40. */
+function genDozerPty(blade,Rd){
+  const cm=Rd.dist/Math.max(1e-6,Rd.f)+Rd.dist/Math.max(1e-6,Rd.r)+Rd.z;
+  return (blade*Rd.fk*60/Math.max(1e-6,cm))*Rd.os*Rd.bf*Rd.sf*Rd.je;
+}
+/* Pemilihan tipe & jumlah dozer. Aturan user: per grup <grpFleets> fleet OB
+   maksimal <grpMaxDozer> dozer, dgn syarat pty 1–2 dozer ≥ pty grup fleet;
+   iterasi model dari terkecil; lalu total diskalakan ke fleet aktual. */
+function genDozerPlan(R,ptyHr,loaders,dens,tier){
+  const Rd=R.dozer, msgs=[];
+  const list=GEN_DOZER_DB[tier==='t2'?'t2':'t1'];
+  const grp=Math.max(1,Rd.grpFleets||3), maxN=Math.max(1,Rd.grpMaxDozer||2);
+  const req=grp*ptyHr;                                  /* kebutuhan grup (unit stream/jam) */
+  let sel=null;
+  for(const d of list){
+    const pty=genDozerPty(d.blade,Rd)*dens;             /* ×densitas utk stream Ton */
+    const n=Math.ceil(req/Math.max(1,pty));
+    sel={d,pty,n};
+    if(n<=maxN) break;
+  }
+  if(sel.n>maxN) msgs.push('⚠️ Dozer terbesar ('+sel.d.model+') tetap butuh '+sel.n+' unit per '+grp+' fleet (> maks '+maxN+') — target per-fleet sangat tinggi.');
+  const total=Math.max(1,Math.ceil(loaders*ptyHr/Math.max(1,sel.pty)));
+  return {merk:sel.d.merk, model:sel.d.model, ton:sel.d.ton, blade:sel.d.blade,
+    pty:sel.pty, nPerGrp:sel.n, grpFleets:grp, total, msgs};
+}
+/* Katalog grader per tier (urut blade length naik). blade = panjang blade m.
+   t1 Komatsu (Handbook: GD825A-2 = 4.9 m, sesuai Excel); t2 XCMG (interpolasi).
+   Semua model ada di Equipment DB kategori Motor Grader. */
+const GEN_GRADER_DB={
+  t1:[
+    {merk:'Komatsu', model:'GD535-5',  blade:3.7},
+    {merk:'Komatsu', model:'GD675-5',  blade:4.0},
+    {merk:'Komatsu', model:'GD705-5',  blade:4.3},
+    {merk:'Komatsu', model:'GD825A-2', blade:4.9}
+  ],
+  t2:[
+    {merk:'XCMG', model:'GR165',  blade:3.4},
+    {merk:'XCMG', model:'GR215',  blade:3.66},
+    {merk:'XCMG', model:'GR2405', blade:3.96},
+    {merk:'XCMG', model:'GR2605', blade:4.27}
+  ]
+};
+/* Produktivitas grading satu grader (m²/jam) — rumus Excel Grader C34. */
+function genGraderPty(blade,Rg){
+  const We=Rg.angleFactor*blade;
+  return Rg.speed*Math.max(0,We-Rg.lap)*1000*Rg.jobEff;
+}
+/* Pemilihan tipe & jumlah grader. road width = lebar DT terlebar × widthMult
+   (roundup ke atas); jumlah = luas jalan × numGrading / (Q × hoursTarget).
+   Iterasi model dari terkecil; naik bila jumlah > grpMaxGrader (spt dozer). */
+function genGraderPlan(R,roadLenKm,dtWidth,tier){
+  const Rg=R.grader, msgs=[];
+  const list=GEN_GRADER_DB[tier==='t2'?'t2':'t1'];
+  const roadWidth=Math.ceil((+dtWidth||2.5)*(Rg.widthMult||2.5));
+  const roadArea=Math.max(0,roadLenKm)*1000*roadWidth;              /* m² */
+  const numG=Math.max(1,Rg.numGrading||2);
+  const maxN=Math.max(1,Rg.grpMaxGrader||2);
+  let sel=null;
+  for(const g of list){
+    const Q=genGraderPty(g.blade,Rg);
+    const n=Math.max(1,Math.ceil(roadArea*numG/Math.max(1,Q*(Rg.hoursTarget||12))));
+    sel={g,Q,n};
+    if(n<=maxN) break;
+  }
+  if(sel.n>maxN) msgs.push('⚠️ Grader terbesar ('+sel.g.model+') tetap butuh '+sel.n+' unit (> maks '+maxN+') — jalan tambang panjang/lebar.');
+  return {merk:sel.g.merk, model:sel.g.model, blade:sel.g.blade, roadWidth, roadLenKm:roadLenKm,
+    Q:sel.Q, numGrading:numG, total:sel.n, msgs};
+}
+/* Rencana manpower — struktur kontraktor tambang. x = {loaders, dtTotal, sup, heavyUnits}.
+   Operator dihitung per kelompok (produksi 2 shift penuh vs support) lalu dijadikan
+   SATU mp_ratio blended supaya mekanisme auto-operator app tetap dipakai.
+   Catatan: core utk skala safety/admin memakai estimasi (+10 posisi tetap defaultMP). */
+function genMpPlan(R,x){
+  const M=R.mp;
+  const sh=Math.max(1,M.shifts||2), lf=M.leaveFactor||1.15;
+  const prodUnits=x.loaders+x.dtTotal;                                    /* exca + DT: 2 shift penuh */
+  const supOp=x.sup.dozer+x.sup.grader+x.sup.wt+x.sup.vibro+x.sup.ft+x.sup.lube; /* support beroperator */
+  const operators=Math.ceil(prodUnits*(M.opProd||2.7))+Math.ceil(supOp*(M.opSup||2.3));
+  const opUnits=prodUnits+supOp;
+  const ratio=+(operators/Math.max(1,opUnits)).toFixed(3);                /* blended → mp_ratio */
+  const mech=Math.max(1,Math.ceil((x.heavyUnits+x.sup.lube)/Math.max(1,M.unitsPerMech)*lf));
+  const gl=x.loaders*sh*Math.max(0,M.glPerFleetShift||1);                 /* Foreman/GL produksi */
+  const spv=Math.max(1,Math.ceil(x.loaders/Math.max(1,M.fleetPerSpv)))*sh;/* Spv produksi: 1 per 2-3 fleet/shift */
+  const eng=Math.max(1,Math.ceil(x.loaders/Math.max(1,M.engPerFleets)));  /* mine engineer → Foreman Engineering */
+  const engA=Math.ceil(eng/2), engB=eng-engA;                             /* defaultMP punya 2 baris Foreman Engineering */
+  const surv=Math.max(1,Math.ceil(x.loaders/Math.max(1,M.survPerFleets)));
+  const juruUkur=surv*2;                                                  /* 2 asisten per surveyor */
+  const checker=sh*Math.max(0,M.checkerPerShift||1);                      /* pit control/dispatch */
+  const medic=sh*Math.max(0,M.medicPerShift||1);                          /* KEPMEN: paramedis per shift */
+  const core=operators+mech+gl+spv+eng+surv+juruUkur+checker+medic+10;    /* +10 ≈ posisi tetap defaultMP */
+  const safety=sh*Math.max(0,M.safetyPerShift||1)+Math.ceil(core/Math.max(1,M.hcPerSafety||75));
+  const tech=core+safety;
+  const admin=Math.max(1,Math.ceil(tech*(M.adminPct||10)/100)-6);         /* -6 = GA tetap (SpvHRGA,FrmHRGA,Proc,HRGA,OB,Wakar) */
+  const security=Math.max(1,Math.round(M.securityQty||5));
+  const totalEst=tech+admin+security;
+  return {sh,ratio,operators,opUnits,mech,gl,spv,eng,engA,engB,surv,juruUkur,checker,medic,safety,admin,security,totalEst};
+}
 const GEN_COMBOS=[
   {id:'t1',      label:'Tier 1',      prodTier:'t1', supTier:'t1', used:false, desc:'Semua alat merek premium (Komatsu/Hino/dkk)'},
   {id:'t2',      label:'Tier 2',      prodTier:'t2', supTier:'t2', used:false, desc:'Semua alat China/Korea — capex rendah, PA & maint disesuaikan'},
@@ -4416,12 +4572,16 @@ const GEN_COMBOS=[
   {id:'newused', label:'New + Used',  prodTier:'t1', supTier:'t2', used:true,  desc:'Produksi baru Tier 1, support Tier 2 BEKAS'}
 ];
 let genState={ arch:'ob', tmode:'yearly', tval:8000000, years:3, dist:3, fleets:5, base:'Site Baru',
+  clsSel:'auto',
   combos:{t1:true,t2:true,mix:true,newused:true} };
 function genSetState(k,v){
   if(k.indexOf('combo_')===0){ genState.combos[k.slice(6)]=!!v; }
-  else if(k==='arch'||k==='tmode'||k==='base'){ genState[k]=v; }
+  else if(k==='arch'||k==='tmode'||k==='base'||k==='clsSel'){ genState[k]=v; }
   else genState[k]=+v||0;
   genRender();
+  /* Kelas terpilih (bukan Auto) → Calculator Produksi ikut tersinkron
+     otomatis (kecuali toggle kombinasi & nama site yang tak mengubah plan). */
+  if(k!=='base' && k.indexOf('combo_')!==0){ try{ genSyncPc(); }catch(e){} }
 }
 function genPrice(def,tier,used,R){
   /* Parametrik DUA ARAH: T2 kosong → T1×rasio; T1 kosong → T2÷rasio. */
@@ -4434,9 +4594,11 @@ function genPrice(def,tier,used,R){
   if(used) p=p*R.tier.usedPrice;
   return Math.round(p);
 }
-/* Rencana fleet utk satu tier produksi. Target → kelas exca terkecil yang muat
-   di ekspektasi fleet; DT dari jarak (rumus cycle sama dgn productivity()). */
-function genPlan(st,R,tier){
+/* Rencana fleet utk SATU kelas alat spesifik (tier produksi tertentu).
+   DT dari jarak (rumus cycle sama dgn productivity()).
+   supTier opsional (default = tier): menentukan katalog dozer (t1 Komatsu /
+   t2 Shantui) karena dozer termasuk alat support. */
+function genPlanFor(st,R,tier,cls,supTier){
   const msgs=[];
   const isCoal=st.arch==='coal';
   const dens=isCoal?(R.coal.density||1.3):1;
@@ -4444,51 +4606,98 @@ function genPlan(st,R,tier){
   if(st.tmode==='monthly') targetYearly*=12;
   if(st.tmode==='project') targetYearly=targetYearly/Math.max(1,st.years);
   const effHrs=8760*R.match.pa*R.match.ua;                      /* jam efektif /th (basis T1; PA tier diterapkan di combo) */
-  let sel=null, loaders=0;
-  for(const c of GEN_CLASSES.exca){
-    const e=c[tier], dtv=c.dt[tier];
-    const pass=Math.max(1,Math.round(dtv.vessel/e.bucket));
-    const cyc=e.ct*pass+R.match.prep;
-    const ptyHr=e.bucket*R.match.fillEff*pass*(3600/cyc)*dens;  /* m3/h → (×densitas utk ton coal) */
-    const ptyYr=ptyHr*effHrs;
-    const need=Math.ceil(targetYearly/Math.max(1,ptyYr));
-    const cand={cls:c, e, dtv, pass, ptyHr, ptyYr, need};
-    if(need<=st.fleets){ sel=cand; break; }
-    sel=cand;                                                    /* simpan kandidat terbesar sejauh ini */
-  }
-  loaders=Math.max(sel.need, Math.min(st.fleets, Math.max(sel.need,1)));
-  if(sel.need>st.fleets){
-    msgs.push('⚠️ Ekspektasi '+st.fleets+' fleet TIDAK cukup — kelas terbesar ('+sel.cls.label+') butuh minimal '+sel.need+' fleet. Dipakai '+sel.need+'.');
-    loaders=sel.need;
-  } else if(sel.need<st.fleets){
+  const e=cls[tier], dtv=cls.dt[tier];
+  const pass=Math.max(1,Math.round(dtv.vessel/e.bucket));
+  const cyc=e.ct*pass+R.match.prep;
+  const ptyHr=e.bucket*R.match.fillEff*pass*(3600/cyc)*dens;    /* m3/h → (×densitas utk ton coal) */
+  const ptyYr=ptyHr*effHrs;
+  const need=Math.ceil(targetYearly/Math.max(1,ptyYr));
+  let loaders=need;
+  if(need>st.fleets){
+    msgs.push('⚠️ Ekspektasi '+st.fleets+' fleet TIDAK cukup — kelas '+cls.label+' butuh minimal '+need+' fleet. Dipakai '+need+'.');
+  } else if(need<st.fleets){
     loaders=st.fleets;
-    msgs.push('ℹ️ Kebutuhan minimum '+sel.need+' fleet; ekspektasimu '+st.fleets+' dipakai (utilisasi lebih rendah, ada cadangan kapasitas).');
+    msgs.push('ℹ️ Kebutuhan minimum '+need+' fleet; ekspektasimu '+st.fleets+' dipakai (utilisasi lebih rendah, ada cadangan kapasitas).');
   }
-  if(sel.pass<R.match.passMin||sel.pass>R.match.passMax) msgs.push('⚠️ Pass '+sel.pass+' di luar ideal '+R.match.passMin+'–'+R.match.passMax+' (pasangan bucket '+sel.e.bucket+' m³ vs vessel '+sel.dtv.vessel+' m³).');
+  if(pass<R.match.passMin||pass>R.match.passMax) msgs.push('⚠️ Pass '+pass+' di luar ideal '+R.match.passMin+'–'+R.match.passMax+' (pasangan bucket '+e.bucket+' m³ vs vessel '+dtv.vessel+' m³).');
   /* DT per fleet — cycle hauler: spotting + travel + loading */
-  const travel=(st.dist/sel.dtv.ve + st.dist/sel.dtv.vl)*3600;
-  const ctH=R.match.spot+travel+(sel.e.ct*sel.pass);
-  const ptyHauler=(sel.dtv.vessel*R.match.vEff*dens)/(ctH/3600);
-  const dtPerFleet=Math.max(1,Math.ceil(sel.ptyHr/Math.max(1,ptyHauler)));
+  const travel=(st.dist/dtv.ve + st.dist/dtv.vl)*3600;
+  const ctH=R.match.spot+travel+(e.ct*pass);
+  const ptyHauler=(dtv.vessel*R.match.vEff*dens)/(ctH/3600);
+  const dtPerFleet=Math.max(1,Math.ceil(ptyHr/Math.max(1,ptyHauler)));
   const dtTotal=dtPerFleet*loaders;
+  /* Dozer: dari produktivitas dozing (Handbook Komatsu) + aturan grup fleet —
+     menggantikan rasio dozerPerFleet lama. */
+  const dozer=genDozerPlan(R,ptyHr,loaders,dens,supTier||tier);
+  dozer.msgs.forEach(m=>msgs.push(m));
+  /* Grader: dari produktivitas grading (Handbook Komatsu) — road length =
+     jarak generator, road width = lebar DT terlebar × 2.5 (roundup). */
+  const grader=genGraderPlan(R,st.dist,dtv.width,supTier||tier);
+  grader.msgs.forEach(m=>msgs.push(m));
   /* Alat support dari rasio (rules) */
   const sup={
-    dozer:Math.max(1,Math.round(R.sup.dozerPerFleet*loaders)),
-    grader:Math.max(1,Math.ceil(st.dist/R.sup.kmPerGrader)),
+    dozer:dozer.total,
+    grader:grader.total,
     wt:Math.max(1,Math.ceil(st.dist/R.sup.kmPerWT)),
     vibro:Math.max(1,Math.ceil(st.dist/R.sup.kmPerVibro)),
     ft:Math.max(1,Math.round(R.sup.ftPerSite)),
     lv:Math.max(1,Math.round(R.sup.lvBase+R.sup.lvPerFleet*loaders)),
-    lamp:Math.max(1,Math.round(R.sup.lampPerFleet*loaders))
+    /* Tower lamp: 1 per <lampExcaPer> excavator di Pit + 1 per <lampDozerPer> dozer di Disposal */
+    lampPit:Math.ceil(loaders/Math.max(1,R.sup.lampExcaPer)),
+    lampDisposal:Math.ceil(dozer.total/Math.max(1,R.sup.lampDozerPer))
   };
+  sup.lamp=Math.max(1, sup.lampPit+sup.lampDisposal);
   const heavyUnits=loaders+dtTotal+sup.dozer+sup.grader+sup.wt+sup.vibro+sup.ft;
   sup.lube=Math.max(1,Math.ceil(heavyUnits/R.sup.lubePerUnits));
   const totalUnits=heavyUnits+sup.lube+sup.lv+sup.lamp;
-  const mech=Math.max(1,Math.ceil((heavyUnits+sup.lube)/R.mp.unitsPerMech));
-  const spvProd=Math.max(1,Math.round(loaders*R.mp.shifts*R.mp.spvPerFleetShift));
-  const util=targetYearly/(loaders*sel.ptyYr)*100;
-  return {tier,msgs,targetYearly,effHrs,isCoal,dens,cls:sel.cls,e:sel.e,dtv:sel.dtv,pass:sel.pass,
-    ptyHr:sel.ptyHr,ptyYr:sel.ptyYr,loaders,dtPerFleet,dtTotal,sup,heavyUnits,totalUnits,mech,spvProd,util};
+  /* Manpower terstruktur (operator blended, mekanik+leave, supervisi span,
+     engineering, HSE, admin, security) — menggantikan rasio flat lama. */
+  const mpp=genMpPlan(R,{loaders,dtTotal,sup,heavyUnits});
+  const mech=mpp.mech;
+  const spvProd=mpp.spv;
+  const util=targetYearly/(loaders*ptyYr)*100;
+  return {tier,msgs,targetYearly,effHrs,isCoal,dens,cls,e,dtv,pass,
+    ptyHr,ptyYr,need,loaders,dtPerFleet,dtTotal,dozer,grader,sup,heavyUnits,totalUnits,mech,spvProd,mp:mpp,util};
+}
+/* Wrapper: kelas dari genState.clsSel bila dipilih; 'auto' = kelas terkecil
+   yang muat di ekspektasi fleet (perilaku lama). */
+function genPlan(st,R,tier,supTier){
+  if(st.clsSel && st.clsSel!=='auto'){
+    const c=GEN_CLASSES.exca.find(x=>x.id===st.clsSel);
+    if(c) return genPlanFor(st,R,tier,c,supTier);
+  }
+  let last=null;
+  for(const c of GEN_CLASSES.exca){
+    last=genPlanFor(st,R,tier,c,supTier);
+    if(last.need<=st.fleets) return last;
+  }
+  return last;
+}
+/* Sinkron 🏭 Calculator Produksi dgn kelas TERPILIH (bukan Auto) — supaya
+   angka generator bisa dicek ulang di tab pc. Basis Tier 1 (PA baseline).
+   prodCalcRender() otomatis me-link stream + calc(); target klien di-set
+   ulang setelahnya (kebijakan sama dgn genSimulate: target menang). */
+function genSyncPc(){
+  const st=genState;
+  if(!st.clsSel || st.clsSel==='auto') return;
+  if(!(+st.tval>0)) return;
+  const R=genRules();
+  const plan=genPlan(st,R,'t1');
+  if(!plan) return;
+  const setv=(id,v)=>{ if($(id)) $(id).value=v; };
+  if($('pc_category')) $('pc_category').value=(st.arch==='coal'?'coal_get':'ob');
+  setv('pc_bucket', +(plan.e.bucket*plan.dens).toFixed(2)); setv('pc_eff_bucket', Math.round(R.match.fillEff*100));
+  setv('pc_ct_loader', plan.e.ct); setv('pc_prep', R.match.prep);
+  setv('pc_vessel', +(plan.dtv.vessel*plan.dens).toFixed(1)); setv('pc_eff_vessel', Math.round(R.match.vEff*100));
+  setv('pc_dump_time', Math.round(R.match.spot/3)); setv('pc_dump_pos', Math.round(R.match.spot/3)); setv('pc_load_pos', Math.round(R.match.spot/3));
+  setv('pc_speed_empty', plan.dtv.ve); setv('pc_speed_loaded', plan.dtv.vl); setv('pc_distance', st.dist);
+  setv('pc_pa', Math.round(R.match.pa*100)); setv('pc_ua', Math.round(R.match.ua*100));
+  setv('pc_mohh', 730); setv('pc_fleet', plan.loaders); setv('pc_years', st.years);
+  try{ pcSyncCurrent(); }catch(e){}
+  try{ prodCalcRender(); }catch(e){}
+  setv(st.arch==='coal'?'prod_coal_ton':'prod_ob_bcm', Math.round(plan.targetYearly));
+  try{ calc(); }catch(e){}
+  if(typeof markDirty==='function') markDirty();
 }
 function genComboParams(combo,R){
   const t=R.tier, pa0=R.match.pa;
@@ -4508,6 +4717,28 @@ function genBuildEquip(plan,combo,R,archStream){
   /* Support: tier support (+used bila combo used) */
   GEN_CLASSES.support.forEach(s=>{
     const qty=plan.sup[s.key]||0; if(qty<=0) return;
+    if(s.key==='dozer'&&plan.dozer){
+      /* Model dozer hasil iterasi produktivitas; harga = anchor tier ×
+         (ton/tonAnchor)^priceExp (parametrik — nanti diganti DB harga user). */
+      const base=genPrice(s,combo.supTier,combo.used,R);
+      const lst=GEN_DOZER_DB[combo.supTier==='t2'?'t2':'t1'];
+      const ancModel=(s[combo.supTier]||s.t1).model;
+      const anc=lst.find(x=>x.model===ancModel)||lst[1];
+      const price=Math.round(base*Math.pow(plan.dozer.ton/Math.max(1,anc.ton), R.dozer.priceExp||1.4));
+      rows.push({cat:s.cat, merk:plan.dozer.merk, model:plan.dozer.model+usedTag, qty:qty,
+        price:price, priceSource:'GEN '+combo.label, stream:archStream});
+      return;
+    }
+    if(s.key==='grader'&&plan.grader){
+      /* Model grader hasil iterasi produktivitas; harga = anchor tier ×
+         (blade/ancBlade)^priceExp. */
+      const base=genPrice(s,combo.supTier,combo.used,R);
+      const ancBlade=(combo.supTier==='t2')?3.66:3.7;
+      const price=Math.round(base*Math.pow(plan.grader.blade/Math.max(0.1,ancBlade), R.grader.priceExp||1.2));
+      rows.push({cat:s.cat, merk:plan.grader.merk, model:plan.grader.model+usedTag, qty:qty,
+        price:price, priceSource:'GEN '+combo.label, stream:archStream});
+      return;
+    }
     const d=s[combo.supTier]||s.t1;
     rows.push({cat:s.cat, merk:d.merk, model:d.model+usedTag, qty:qty,
       price:genPrice(s,combo.supTier,combo.used,R), priceSource:'GEN '+combo.label, stream:archStream});
@@ -4524,6 +4755,89 @@ function genOpen(i){
   const L=window._genLast; if(!L||!L.results[i]) return;
   if(typeof pickProject==='function') pickProject(L.results[i].name);
 }
+/* Isi seluruh input sesuai rencana + calc() + baca metrik. DRY-RUN murni:
+   tidak membuat project, tidak menulis storage. Pemanggil wajib
+   snapshot scenario sebelum dan restore sesudah. */
+function genSimulate(st,R,combo,plan){
+  const cp=genComboParams(combo,R);
+  const archStream=st.arch==='coal'?'coal_get':'ob';
+  _resetCalculatorToDefaults();
+  const setv=(id,v)=>{ if($(id)) $(id).value=v; };
+  setv('preset', st.arch==='coal'?'coal':'ob');
+  setv('years', st.years); setv('usd', (typeof abKursTerkini==='function')?abKursTerkini():17000);
+  setv('margin', 1.2); setv('mp_ratio', plan.mp?plan.mp.ratio:2.7); setv('akom_cost', 2500000);
+  setv('qnty', plan.loaders); setv('pa', cp.pa.toFixed(2)); setv('ua', R.match.ua); setv('hrs', 8760);
+  setv('adj', 1); /* harga katalog generator = harga final (tanpa faktor adjust) */
+  setv('maint_factor', cp.mf);
+  /* Loader (Calculator) — bucket dikali densitas utk Coal supaya produksi tampil dlm Ton */
+  if($('l_merk')) $('l_merk').value=plan.e.merk;
+  try{ updateLoaderModels(plan.e.model); }catch(e){}
+  setv('l_bucket', +(plan.e.bucket*plan.dens).toFixed(2));
+  setv('l_ct', plan.e.ct); setv('l_prep', R.match.prep); setv('l_eff', R.match.fillEff);
+  /* Hauler — kalau model tak ada di HAULER_DB, pakai kolom manual (vessel/speed di-set langsung) */
+  if(!plan.dtv.notInHaulerDb && $('h_merk')){ $('h_merk').value=plan.dtv.merk; try{ updateHaulerModels(plan.dtv.model); }catch(e){} }
+  setv('h_vessel', +(plan.dtv.vessel*plan.dens).toFixed(1));
+  setv('h_ve', plan.dtv.ve); setv('h_vl', plan.dtv.vl);
+  setv('h_dist', st.dist); setv('h_eff', R.match.vEff);
+  setv('h_dt', Math.round(R.match.spot/3)); setv('h_dp', Math.round(R.match.spot/3)); setv('h_lp', Math.round(R.match.spot/3));
+  /* Calculator Produksi (pc_*) — diisi dari rencana yang sama supaya tab-nya konsisten.
+     CATATAN: pc pakai satuan PERSEN utk eff/PA/UA dan MOHH jam/bulan. */
+  if($('pc_category')) $('pc_category').value=(st.arch==='coal'?'coal_get':'ob');
+  setv('pc_bucket', +(plan.e.bucket*plan.dens).toFixed(2)); setv('pc_eff_bucket', Math.round(R.match.fillEff*100));
+  setv('pc_ct_loader', plan.e.ct); setv('pc_prep', R.match.prep);
+  setv('pc_vessel', +(plan.dtv.vessel*plan.dens).toFixed(1)); setv('pc_eff_vessel', Math.round(R.match.vEff*100));
+  setv('pc_dump_time', Math.round(R.match.spot/3)); setv('pc_dump_pos', Math.round(R.match.spot/3)); setv('pc_load_pos', Math.round(R.match.spot/3));
+  setv('pc_speed_empty', plan.dtv.ve); setv('pc_speed_loaded', plan.dtv.vl); setv('pc_distance', st.dist);
+  setv('pc_pa', Math.round(cp.pa*100)); setv('pc_ua', Math.round(R.match.ua*100));
+  setv('pc_mohh', 730); setv('pc_fleet', plan.loaders); setv('pc_years', st.years);
+  /* Target produksi per stream (per tahun) — DI-SET SETELAH rerender juga, karena
+     auto-link Calculator Produksi menimpanya dgn kapasitas fleet. Target klien menang. */
+  setv(st.arch==='coal'?'prod_coal_ton':'prod_ob_bcm', Math.round(plan.targetYearly));
+  /* Equipment & manpower & support */
+  equip=genBuildEquip(plan,combo,R,archStream);
+  support=defaultSupport();
+  /* Manpower dari genMpPlan: override baris defaultMP + tambah posisi HSE/
+     engineering dari MP_CATALOG. Operator tetap auto (mp_ratio blended). */
+  const MPX=plan.mp||{};
+  let _engFirst=true;
+  manpower=defaultMP().map(m=>{
+    const p=m.pos||'';
+    if(/^spv production/i.test(p))     return Object.assign({},m,{qty:MPX.spv!=null?MPX.spv:plan.spvProd});
+    if(/^foreman production/i.test(p)) return Object.assign({},m,{qty:MPX.gl!=null?MPX.gl:plan.loaders});
+    if(/^foreman engineering/i.test(p)){ const q=_engFirst?(MPX.engA!=null?MPX.engA:1):(MPX.engB!=null?MPX.engB:1); _engFirst=false; return Object.assign({},m,{qty:q}); }
+    if(/^surveyor/i.test(p))           return Object.assign({},m,{qty:MPX.surv!=null?MPX.surv:1});
+    if(/^mekanik$/i.test(p))           return Object.assign({},m,{qty:MPX.mech!=null?MPX.mech:plan.mech});
+    if(/^spv plant/i.test(p))          return Object.assign({},m,{qty:1});
+    if(/^admin$/i.test(p))             return Object.assign({},m,{qty:MPX.admin!=null?MPX.admin:1});
+    if(/^security/i.test(p))           return Object.assign({},m,{qty:MPX.security!=null?MPX.security:1});
+    return m;
+  });
+  /* Posisi tambahan (belum ada di defaultMP) — gaji dari MP_CATALOG */
+  (function(){
+    const addRow=(pos,qty)=>{
+      if(!(qty>0)) return;
+      const c=(typeof MP_CATALOG!=='undefined'?MP_CATALOG:[]).find(x=>x.pos===pos);
+      manpower.push({pos:pos, qty:qty, sal:c?c.sal:5356450});
+    };
+    addRow('Safety Officer', MPX.safety);
+    addRow('Medic',          MPX.medic);
+    addRow('Checker',        MPX.checker);
+    addRow('Juru Ukur',      MPX.juruUkur);
+  })();
+  _rerenderAllClean();
+  /* Auto-link pc menimpa prod stream dgn KAPASITAS fleet — kembalikan ke TARGET klien
+     (basis revenue = volume kontrak, bukan kapasitas), lalu hitung ulang. */
+  setv(st.arch==='coal'?'prod_coal_ton':'prod_ob_bcm', Math.round(plan.targetYearly));
+  try{ calc(); }catch(e){}
+  let met={rate:0,cost:0,prod:0,eqCap:0,modal:0,opexMo:0};
+  try{
+    const cf=window._cfCache||{}; const ma=computeModalAwal();
+    const eqCap=equip.reduce((a,e)=>a+(+e.price||0)*(+e.qty||0),0);
+    met={ rate:(st.arch==='coal'?+cf.rateTon:+cf.rateBcm)||0, cost:+cf.cost||0, prod:+cf.prod||0,
+          eqCap, modal:(ma.dpEquip||0)+(ma.capexInfra||0), opexMo:+ma.moOpex||0 };
+  }catch(e){}
+  return met;
+}
 function genRun(){
   const st=genState, R=genRules();
   const combos=GEN_COMBOS.filter(c=>st.combos[c.id]);
@@ -4531,76 +4845,18 @@ function genRun(){
   if(!(+st.tval>0)){ alert('Isi target produksi.'); return; }
   const base=(st.base||'').trim()||'Site Baru';
   const folder='GEN — '+base;
-  const archStream=st.arch==='coal'?'coal_get':'ob';
   const cur=getActiveProject();
   let projs=readProjects(); projs[cur]=snapshotScenario(); writeProjects(projs);
   genEnsureFolder(folder);
   const results=[];
   combos.forEach(combo=>{
-    const plan=genPlan(st,R,combo.prodTier);
-    const cp=genComboParams(combo,R);
+    const plan=genPlan(st,R,combo.prodTier,combo.supTier);
     let name=base+' · '+combo.label;
     let pj=readProjects(); let n2=name,i=2; while(n2 in pj){ n2=name+' ('+i+')'; i++; } name=n2;
     pj[name]=null; writeProjects(pj);
     setProjectFolder(name, folder);
     setActiveProject(name);
-    _resetCalculatorToDefaults();
-    /* --- isi seluruh input sesuai rencana --- */
-    const setv=(id,v)=>{ if($(id)) $(id).value=v; };
-    setv('preset', st.arch==='coal'?'coal':'ob');
-    setv('years', st.years); setv('usd', (typeof abKursTerkini==='function')?abKursTerkini():17000);
-    setv('margin', 1.2); setv('mp_ratio', 2.7); setv('akom_cost', 2500000);
-    setv('qnty', plan.loaders); setv('pa', cp.pa.toFixed(2)); setv('ua', R.match.ua); setv('hrs', 8760);
-    setv('adj', 1); /* harga katalog generator = harga final (tanpa faktor adjust) */
-    setv('maint_factor', cp.mf);
-    /* Loader (Calculator) — bucket dikali densitas utk Coal supaya produksi tampil dlm Ton */
-    if($('l_merk')) $('l_merk').value=plan.e.merk;
-    try{ updateLoaderModels(plan.e.model); }catch(e){}
-    setv('l_bucket', +(plan.e.bucket*plan.dens).toFixed(2));
-    setv('l_ct', plan.e.ct); setv('l_prep', R.match.prep); setv('l_eff', R.match.fillEff);
-    /* Hauler — kalau model tak ada di HAULER_DB, pakai kolom manual (vessel/speed di-set langsung) */
-    if(!plan.dtv.notInHaulerDb && $('h_merk')){ $('h_merk').value=plan.dtv.merk; try{ updateHaulerModels(plan.dtv.model); }catch(e){} }
-    setv('h_vessel', +(plan.dtv.vessel*plan.dens).toFixed(1));
-    setv('h_ve', plan.dtv.ve); setv('h_vl', plan.dtv.vl);
-    setv('h_dist', st.dist); setv('h_eff', R.match.vEff);
-    setv('h_dt', Math.round(R.match.spot/3)); setv('h_dp', Math.round(R.match.spot/3)); setv('h_lp', Math.round(R.match.spot/3));
-    /* Calculator Produksi (pc_*) — diisi dari rencana yang sama supaya tab-nya konsisten.
-       CATATAN: pc pakai satuan PERSEN utk eff/PA/UA dan MOHH jam/bulan. */
-    if($('pc_category')) $('pc_category').value=(st.arch==='coal'?'coal_get':'ob');
-    setv('pc_bucket', +(plan.e.bucket*plan.dens).toFixed(2)); setv('pc_eff_bucket', Math.round(R.match.fillEff*100));
-    setv('pc_ct_loader', plan.e.ct); setv('pc_prep', R.match.prep);
-    setv('pc_vessel', +(plan.dtv.vessel*plan.dens).toFixed(1)); setv('pc_eff_vessel', Math.round(R.match.vEff*100));
-    setv('pc_dump_time', Math.round(R.match.spot/3)); setv('pc_dump_pos', Math.round(R.match.spot/3)); setv('pc_load_pos', Math.round(R.match.spot/3));
-    setv('pc_speed_empty', plan.dtv.ve); setv('pc_speed_loaded', plan.dtv.vl); setv('pc_distance', st.dist);
-    setv('pc_pa', Math.round(cp.pa*100)); setv('pc_ua', Math.round(R.match.ua*100));
-    setv('pc_mohh', 730); setv('pc_fleet', plan.loaders); setv('pc_years', st.years);
-    /* Target produksi per stream (per tahun) — DI-SET SETELAH rerender juga, karena
-       auto-link Calculator Produksi menimpanya dgn kapasitas fleet. Target klien menang. */
-    setv(st.arch==='coal'?'prod_coal_ton':'prod_ob_bcm', Math.round(plan.targetYearly));
-    /* Equipment & manpower & support */
-    equip=genBuildEquip(plan,combo,R,archStream);
-    support=defaultSupport();
-    manpower=defaultMP().map(m=>{
-      const p=m.pos||'';
-      if(/^spv production/i.test(p)) return Object.assign({},m,{qty:plan.spvProd});
-      if(/^mekanik/i.test(p))        return Object.assign({},m,{qty:plan.mech});
-      if(/^foreman production/i.test(p)) return Object.assign({},m,{qty:plan.loaders});
-      if(/^spv plant/i.test(p))      return Object.assign({},m,{qty:1});
-      return m;
-    });
-    _rerenderAllClean();
-    /* Auto-link pc menimpa prod stream dgn KAPASITAS fleet — kembalikan ke TARGET klien
-       (basis revenue = volume kontrak, bukan kapasitas), lalu hitung ulang. */
-    setv(st.arch==='coal'?'prod_coal_ton':'prod_ob_bcm', Math.round(plan.targetYearly));
-    try{ calc(); }catch(e){}
-    /* --- metrik utk tabel perbandingan (calc sudah jalan) --- */
-    let met={};
-    try{
-      const cf=window._cfCache||{}; const ma=computeModalAwal();
-      const eqCap=equip.reduce((a,e)=>a+(+e.price||0)*(+e.qty||0),0);
-      met={ rate:(st.arch==='coal'?+cf.rateTon:+cf.rateBcm)||0, cost:+cf.cost||0,
-            eqCap, modal:(ma.dpEquip||0)+(ma.capexInfra||0), opexMo:+ma.moOpex||0 };
-    }catch(e){ met={rate:0,cost:0,eqCap:0,modal:0,opexMo:0}; }
+    const met=genSimulate(st,R,combo,plan);
     /* simpan project variant */
     const snap=snapshotScenario(); let p3=readProjects(); p3[name]=snap; writeProjects(p3);
     results.push(Object.assign({name, combo:combo.id, label:combo.label, plan:{cls:plan.cls.label, loaders:plan.loaders, dt:plan.dtTotal, pass:plan.pass, util:plan.util}}, met));
@@ -4610,6 +4866,36 @@ function genRun(){
   const back=readProjects()[cur]; if(back) _applyScenario(back); else _resetCalculatorToDefaults();
   _rerenderAllClean(); refreshProjectDropdown();
   window._genLast={results, folder, base, arch:st.arch, ts:Date.now()};
+  genRender();
+}
+/* 🔍 Bandingkan Kelas: simulasi penuh SEMUA kelas × kombinasi tercentang.
+   Dry-run — tidak membuat project. Scenario aktif dipulihkan di akhir (finally). */
+function genCompare(){
+  const st=genState, R=genRules();
+  const combos=GEN_COMBOS.filter(c=>st.combos[c.id]);
+  if(!combos.length){ alert('Pilih minimal 1 kombinasi.'); return; }
+  if(!(+st.tval>0)){ alert('Isi target produksi.'); return; }
+  const cur=getActiveProject();
+  let projs=readProjects(); projs[cur]=snapshotScenario(); writeProjects(projs);
+  const rows=[];
+  try{
+    GEN_CLASSES.exca.forEach(cls=>{
+      const rates={}; let fleetTxt='—', eqCap=0;
+      combos.forEach(combo=>{
+        try{
+          const plan=genPlanFor(st,R,combo.prodTier,cls,combo.supTier);
+          const met=genSimulate(st,R,combo,plan);
+          rates[combo.id]=met.rate>0?met.rate:null;
+          if(combo===combos[0]){ fleetTxt=plan.loaders+'× exca + '+plan.dtTotal+' DT'; eqCap=met.eqCap; }
+        }catch(e){ rates[combo.id]=null; }
+      });
+      rows.push({clsId:cls.id, label:cls.label, fleetTxt, eqCap, rates});
+    });
+  } finally {
+    const back=readProjects()[cur]; if(back) _applyScenario(back); else _resetCalculatorToDefaults();
+    _rerenderAllClean();
+  }
+  window._genCompare={rows, comboIds:combos.map(c=>c.id), arch:st.arch, unit:(st.arch==='coal'?'Ton':'BCM')};
   genRender();
 }
 function genRender(){
@@ -4633,7 +4919,16 @@ function genRender(){
   h+='</div>';
   h+='<div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:10px">';
   GEN_COMBOS.forEach(c=>{ h+='<label class="text-xs" style="color:#d6d3d1;display:flex;align-items:center;gap:5px" title="'+c.desc+'"><input type="checkbox" '+(st.combos[c.id]?'checked':'')+' onchange="genSetState(\'combo_'+c.id+'\',this.checked)"> '+c.label+'</label>'; });
-  h+='<button class="btn" onclick="genRun()" style="margin-left:auto;padding:7px 18px;font-weight:800;background:#fbbf24;color:#1a1410;border:none;border-radius:8px;cursor:pointer">🏗️ Generate '+GEN_COMBOS.filter(c=>st.combos[c.id]).length+' Kombinasi → Project</button>';
+  h+='<button class="btn btn-sec" onclick="genCompare()" style="margin-left:auto;padding:7px 14px;font-weight:800;border-radius:8px;cursor:pointer" title="Simulasi penuh semua kelas alat × kombinasi tercentang — angka rate identik dengan hasil Generate">🔍 Bandingkan Kelas</button>';
+  h+='<button class="btn" onclick="genRun()" style="padding:7px 18px;font-weight:800;background:#fbbf24;color:#1a1410;border:none;border-radius:8px;cursor:pointer">🏗️ Generate '+GEN_COMBOS.filter(c=>st.combos[c.id]).length+' Kombinasi → Project</button>';
+  h+='</div>';
+  h+='<div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;align-items:center">';
+  h+='<span class="text-xs" style="color:#fbbf24;font-weight:800">Kelas alat:</span>';
+  h+='<label class="text-xs" style="color:#d6d3d1;display:flex;align-items:center;gap:5px"><input type="radio" name="gen_cls" '+(st.clsSel==='auto'?'checked':'')+' onchange="genSetState(\'clsSel\',\'auto\')"> Auto (terkecil yang muat)</label>';
+  GEN_CLASSES.exca.forEach(c=>{
+    h+='<label class="text-xs" style="color:#d6d3d1;display:flex;align-items:center;gap:5px"><input type="radio" name="gen_cls" '+(st.clsSel===c.id?'checked':'')+' onchange="genSetState(\'clsSel\',\''+c.id+'\')"> '+c.label+'</label>';
+  });
+  if(st.clsSel!=='auto') h+='<span class="text-xs" style="color:#84cc16">↔ 🏭 Calculator Produksi tersinkron otomatis dgn kelas ini — buka tab-nya utk cek ulang</span>';
   h+='</div></div>';
   /* ---- PRATINJAU RENCANA FLEET (T1 vs T2) ---- */
   if(+st.tval>0){
@@ -4645,13 +4940,45 @@ function genRender(){
       h+='<div class="text-xs" style="color:#a8a29e;line-height:1.7">';
       h+='Loader: <b style="color:#fde68a">'+P.loaders+'× '+P.e.merk+' '+P.e.model+'</b> (bucket '+P.e.bucket+' m³ · pty '+Math.round(P.ptyHr)+' '+unit.toLowerCase()+'/jam)<br>';
       h+='DT: <b style="color:#fde68a">'+P.dtTotal+'× '+P.dtv.merk+' '+P.dtv.model+'</b> ('+P.dtPerFleet+'/fleet · vessel '+P.dtv.vessel+' m³ · '+P.pass+' pass)<br>';
-      h+='Support: '+P.sup.dozer+' dozer · '+P.sup.grader+' grader · '+P.sup.wt+' WT · '+P.sup.vibro+' vibro · '+P.sup.ft+' FT · '+P.sup.lube+' lube · '+P.sup.lv+' LV · '+P.sup.lamp+' lamp<br>';
-      h+='Manpower kunci: '+P.spvProd+' Spv Prod · '+P.mech+' mekanik · operator auto (2.7×unit)<br>';
+      if(P.dozer) h+='Dozer: <b style="color:#fde68a">'+P.sup.dozer+'× '+P.dozer.merk+' '+P.dozer.model+'</b> (blade '+P.dozer.blade+' m³ · pty '+Math.round(P.dozer.pty)+' '+unit.toLowerCase()+'/jam · '+P.dozer.nPerGrp+'/'+P.dozer.grpFleets+' fleet)<br>';
+      if(P.grader) h+='Grader: <b style="color:#fde68a">'+P.sup.grader+'× '+P.grader.merk+' '+P.grader.model+'</b> (blade '+P.grader.blade+' m · road '+P.grader.roadWidth+' m × '+P.grader.roadLenKm+' km · pty '+Math.round(P.grader.Q).toLocaleString('id-ID')+' m²/jam · '+P.grader.numGrading+'× grading)<br>';
+      h+='Support: '+P.sup.wt+' WT · '+P.sup.vibro+' vibro · '+P.sup.ft+' FT · '+P.sup.lube+' lube · '+P.sup.lv+' LV · '+P.sup.lamp+' lamp ('+P.sup.lampPit+' pit + '+P.sup.lampDisposal+' disposal)<br>';
+      if(P.mp) h+='Manpower: <b style="color:#fde68a">±'+P.mp.operators+' operator</b> (ratio '+P.mp.ratio+') · '+P.mp.spv+' spv + '+P.mp.gl+' GL prod · '+P.mp.mech+' mekanik · '+P.mp.eng+' engineer · '+P.mp.surv+'+'+P.mp.juruUkur+' survey · '+P.mp.safety+' safety · '+P.mp.medic+' medic · est total ±'+P.mp.totalEst+' org<br>';
+      else h+='Manpower kunci: '+P.spvProd+' Spv Prod · '+P.mech+' mekanik · operator auto<br>';
       h+='Utilisasi: <b style="color:'+(P.util>100?'#f87171':'#84cc16')+'">'+P.util.toFixed(0)+'%</b> · total '+P.totalUnits+' unit';
       h+='</div>';
       P.msgs.forEach(m=>{ h+='<div class="text-xs" style="color:#fdba74;margin-top:5px">'+m+'</div>'; });
       h+='</div>';
     });
+    h+='</div>';
+  }
+  /* ---- TABEL PERBANDINGAN KELAS (hasil 🔍 genCompare) ---- */
+  const C=window._genCompare;
+  if(C&&C.rows&&C.rows.length){
+    h+='<div style="background:#14110e;border:1px solid #3d342a;border-radius:10px;padding:12px;margin-bottom:12px">';
+    h+='<div style="font-size:11px;font-weight:800;letter-spacing:.6px;color:#fbbf24;margin-bottom:8px">🔍 PERBANDINGAN KELAS — rate $/'+C.unit+' (simulasi penuh, identik dgn hasil Generate)</div>';
+    h+='<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:560px">';
+    h+='<tr style="border-bottom:1px solid #3d342a"><th style="text-align:left;padding:6px 8px;color:#fbbf24">Kelas</th><th style="text-align:left;padding:6px 8px;color:#fbbf24">Fleet</th><th style="text-align:right;padding:6px 8px;color:#fbbf24">Capex Alat</th>';
+    C.comboIds.forEach(cid=>{ const cb=GEN_COMBOS.find(x=>x.id===cid); h+='<th style="text-align:right;padding:6px 8px;color:#fbbf24">'+cb.label+'</th>'; });
+    h+='<th style="padding:6px 8px"></th></tr>';
+    /* ⭐ per kolom kombinasi = rate termurah */
+    const best={}; C.comboIds.forEach(cid=>{ const v=C.rows.map(r=>r.rates[cid]).filter(x=>x>0); best[cid]=v.length?Math.min.apply(null,v):null; });
+    C.rows.forEach(r=>{
+      h+='<tr style="border-bottom:1px solid #241a12'+(st.clsSel===r.clsId?';background:rgba(251,191,36,.06)':'')+'">';
+      h+='<td style="padding:6px 8px;color:#fde68a;font-weight:700">'+r.label+'</td>';
+      h+='<td style="padding:6px 8px;color:#a8a29e">'+r.fleetTxt+'</td>';
+      h+='<td style="padding:6px 8px;text-align:right;color:#e7e5e4">Rp '+cfFmtB(r.eqCap)+'</td>';
+      C.comboIds.forEach(cid=>{
+        const v=r.rates[cid];
+        if(v==null){ h+='<td style="padding:6px 8px;text-align:right;color:#78716c">—</td>'; }
+        else{ const isBest=best[cid]!=null&&v===best[cid];
+          h+='<td style="padding:6px 8px;text-align:right;color:'+(isBest?'#84cc16':'#fde68a')+';font-weight:'+(isBest?'800':'600')+'">'+(isBest?'⭐ ':'')+'$'+(+v).toFixed(4)+'</td>'; }
+      });
+      h+='<td style="padding:6px 8px;text-align:right"><button class="btn btn-sec" onclick="genSetState(\'clsSel\',\''+r.clsId+'\')" style="padding:3px 10px;font-size:11px">'+(st.clsSel===r.clsId?'✓ Dipakai':'Pakai ini')+'</button></td>';
+      h+='</tr>';
+    });
+    h+='</table></div>';
+    h+='<div class="text-xs" style="color:#78716c;margin-top:8px">⭐ = rate termurah per kombinasi. Kolom Fleet & Capex = kombinasi pertama yang dicentang. Klik "Pakai ini" lalu Generate — kelas TIDAK diganti diam-diam; kalau tak sanggup memenuhi target akan muncul ⚠️ di pratinjau.</div>';
     h+='</div>';
   }
   /* ---- RULES (editable) ---- */
@@ -4670,11 +4997,50 @@ function genRender(){
   h+=rinp('coal.density','Densitas coal (t/bcm)',R.coal.density,'0.05','Konversi bucket m³ → ton utk Coal Getting');
   h+='</div></div>';
   h+='<div style="margin-top:10px"><div class="text-xs" style="color:#fde68a;font-weight:700;margin-bottom:4px">Alat Support (rasio)</div><div style="display:flex;gap:12px;flex-wrap:wrap">';
-  h+=rinp('sup.dozerPerFleet','Dozer /fleet',R.sup.dozerPerFleet,'1','')+rinp('sup.kmPerGrader','km /grader',R.sup.kmPerGrader,'0.5','')+rinp('sup.kmPerWT','km /WT',R.sup.kmPerWT,'0.5','')+rinp('sup.kmPerVibro','km /vibro',R.sup.kmPerVibro,'0.5','')+rinp('sup.ftPerSite','FT /site',R.sup.ftPerSite,'1','')+rinp('sup.lubePerUnits','Unit /lube truck',R.sup.lubePerUnits,'1','')+rinp('sup.lvBase','LV dasar',R.sup.lvBase,'1','')+rinp('sup.lvPerFleet','LV /fleet',R.sup.lvPerFleet,'1','')+rinp('sup.lampPerFleet','Lamp /fleet',R.sup.lampPerFleet,'1','');
+  h+=rinp('sup.kmPerWT','km /WT',R.sup.kmPerWT,'0.5','')+rinp('sup.kmPerVibro','km /vibro',R.sup.kmPerVibro,'0.5','')+rinp('sup.ftPerSite','FT /site',R.sup.ftPerSite,'1','')+rinp('sup.lubePerUnits','Unit /lube truck',R.sup.lubePerUnits,'1','')+rinp('sup.lvBase','LV dasar',R.sup.lvBase,'1','')+rinp('sup.lvPerFleet','LV /fleet',R.sup.lvPerFleet,'1','')+rinp('sup.lampExcaPer','Exca /lamp (Pit)',R.sup.lampExcaPer,'1','1 tower lamp per sekian excavator di Pit')+rinp('sup.lampDozerPer','Dozer /lamp (Disposal)',R.sup.lampDozerPer,'1','1 tower lamp per sekian dozer di Disposal');
+  h+='</div><div class="text-xs" style="color:#78716c;margin-top:6px">Jumlah dozer &amp; grader TIDAK lagi dari rasio — dihitung dari produktivitas (lihat seksi Dozer &amp; Grader di bawah).</div></div>';
+  h+='<div style="margin-top:10px"><div class="text-xs" style="color:#fde68a;font-weight:700;margin-bottom:4px">Dozer — Produktivitas & Pemilihan (Handbook Komatsu; Dozing · Kering · Average)</div><div style="display:flex;gap:12px;flex-wrap:wrap">';
+  h+=rinp('dozer.dist','Jarak dozing (m)',R.dozer.dist,'0.5','Jarak crestline kondisi Kering (sheet Parameter Calc = 4.5)');
+  h+=rinp('dozer.f','f maju (m/mnt)',R.dozer.f,'0.01','Forward speed aktivitas Dozing');
+  h+=rinp('dozer.r','r mundur (m/mnt)',R.dozer.r,'0.01','Reverse speed aktivitas Dozing');
+  h+=rinp('dozer.z','z fix (mnt)',R.dozer.z,'0.01','Fix time (ganti gigi)');
+  h+=rinp('dozer.fk','FK Dozing',R.dozer.fk,'0.01','Faktor koreksi aktivitas Dozing');
+  h+=rinp('dozer.bf','Blade factor',R.dozer.bf,'0.01','Average Dozing = 0.80');
+  h+=rinp('dozer.sf','Speed factor',R.dozer.sf,'0.01','');
+  h+=rinp('dozer.je','Job efficiency',R.dozer.je,'0.01','Average = 0.75');
+  h+=rinp('dozer.os','Operator skill',R.dozer.os,'0.01','');
+  h+=rinp('dozer.grpFleets','Fleet /grup',R.dozer.grpFleets,'1','Aturan: per grup fleet sebanyak ini...');
+  h+=rinp('dozer.grpMaxDozer','Maks dozer /grup',R.dozer.grpMaxDozer,'1','...dilayani maksimal sekian dozer; iterasi model naik sampai terpenuhi');
+  h+=rinp('dozer.priceExp','Eksponen harga',R.dozer.priceExp,'0.05','Harga model = anchor tier × (ton/tonAnchor)^eksponen (parametrik)');
   h+='</div></div>';
-  h+='<div style="margin-top:10px"><div class="text-xs" style="color:#fde68a;font-weight:700;margin-bottom:4px">Manpower</div><div style="display:flex;gap:12px;flex-wrap:wrap">';
-  h+=rinp('mp.unitsPerMech','Unit /mekanik',R.mp.unitsPerMech,'1','')+rinp('mp.shifts','Shift',R.mp.shifts,'1','')+rinp('mp.spvPerFleetShift','Spv /fleet/shift',R.mp.spvPerFleetShift,'1','');
-  h+='</div><div class="text-xs" style="color:#78716c;margin-top:8px">Harga katalog kelas alat (Tier 1 anchor historis; Tier 2 riil bila ada quote, sisanya parametrik) — nanti diganti database lengkap. Kosongkan field → kembali ke default.</div></div>';
+  h+='<div style="margin-top:10px"><div class="text-xs" style="color:#fde68a;font-weight:700;margin-bottom:4px">Grader — Produktivitas & Pemilihan (Handbook Komatsu; Spreading/Grading)</div><div style="display:flex;gap:12px;flex-wrap:wrap">';
+  h+=rinp('grader.widthMult','Lebar jalan (× DT)',R.grader.widthMult,'0.1','Road width = lebar DT terlebar × faktor ini, roundup ke atas');
+  h+=rinp('grader.numGrading','Jumlah grading',R.grader.numGrading,'1','Berapa kali permukaan digrading sampai flat (Excel: 2)');
+  h+=rinp('grader.angleFactor','Faktor sudut blade',R.grader.angleFactor,'0.01','Blade angle 45° → 0.70 (efektif We = faktor × blade)');
+  h+=rinp('grader.lap','Lap/overlap (m)',R.grader.lap,'0.05','Tumpang tindih antar lintasan');
+  h+=rinp('grader.speed','Speed (km/jam)',R.grader.speed,'0.5','Working speed Spreading/Grading = 4');
+  h+=rinp('grader.jobEff','Job efficiency',R.grader.jobEff,'0.05','Spreading/Grading = 0.60');
+  h+=rinp('grader.hoursTarget','Jam kerja target',R.grader.hoursTarget,'1','Jam utk menyelesaikan grading seluruh jalan (Excel: 12)');
+  h+=rinp('grader.grpMaxGrader','Maks grader',R.grader.grpMaxGrader,'1','Iterasi model naik bila jumlah > ini');
+  h+=rinp('grader.priceExp','Eksponen harga',R.grader.priceExp,'0.05','Harga model = anchor tier × (blade/ancBlade)^eksponen');
+  h+='</div><div class="text-xs" style="color:#78716c;margin-top:6px">Road length = input Jarak (km) di form atas. Road width = lebar dump truck terlebar × faktor (roundup).</div></div>';
+  h+='<div style="margin-top:10px"><div class="text-xs" style="color:#fde68a;font-weight:700;margin-bottom:4px">Manpower — Struktur Kontraktor (operator · mekanik · supervisi · HSE · admin)</div><div style="display:flex;gap:12px;flex-wrap:wrap">';
+  h+=rinp('mp.shifts','Shift',R.mp.shifts,'1','Jumlah shift operasi per hari');
+  h+=rinp('mp.opProd','Op /unit produksi',R.mp.opProd,'0.1','Operator per unit exca+DT (2 shift + cuti/absensi)');
+  h+=rinp('mp.opSup','Op /unit support',R.mp.opSup,'0.1','Operator per unit dozer/grader/WT/vibro/FT/lube (shift efektif lebih rendah)');
+  h+=rinp('mp.unitsPerMech','Unit /mekanik',R.mp.unitsPerMech,'1','1 mekanik per sekian unit berat');
+  h+=rinp('mp.leaveFactor','Leave factor',R.mp.leaveFactor,'0.05','Pengali cuti/absensi utk mekanik (1.15 = +15%)');
+  h+=rinp('mp.fleetPerSpv','Fleet /spv',R.mp.fleetPerSpv,'1','1 Spv Produksi per sekian fleet per shift (span of control)');
+  h+=rinp('mp.glPerFleetShift','GL /fleet/shift',R.mp.glPerFleetShift,'1','Group Leader / Foreman Produksi per fleet per shift');
+  h+=rinp('mp.engPerFleets','Fleet /engineer',R.mp.engPerFleets,'1','1 mine engineer per sekian fleet');
+  h+=rinp('mp.survPerFleets','Fleet /surveyor',R.mp.survPerFleets,'1','1 surveyor (+2 juru ukur) per sekian fleet');
+  h+=rinp('mp.safetyPerShift','Safety /shift',R.mp.safetyPerShift,'1','Safety officer per shift (KEPMEN 1827)');
+  h+=rinp('mp.hcPerSafety','HC /safety',R.mp.hcPerSafety,'5','+1 safety officer per sekian total headcount');
+  h+=rinp('mp.medicPerShift','Medic /shift',R.mp.medicPerShift,'1','Paramedis per shift (wajib site remote)');
+  h+=rinp('mp.checkerPerShift','Checker /shift',R.mp.checkerPerShift,'1','Pit control / checker per shift');
+  h+=rinp('mp.adminPct','Admin (% HC)',R.mp.adminPct,'1','Cluster admin/HRGA/logistik = % dari headcount teknis');
+  h+=rinp('mp.securityQty','Security /site',R.mp.securityQty,'1','Personel security site (pos × 3 shift)');
+  h+='</div><div class="text-xs" style="color:#78716c;margin-top:8px">Operator dihitung sbg SATU mp_ratio blended (produksi & support) supaya mekanisme auto-operator app tetap jalan. Harga katalog kelas alat (Tier 1 anchor historis; Tier 2 riil bila ada quote, sisanya parametrik) — nanti diganti database lengkap. Kosongkan field → kembali ke default.</div></div>';
   h+='</details>';
   /* ---- HASIL GENERATE TERAKHIR ---- */
   const L=window._genLast;
@@ -4682,9 +5048,10 @@ function genRender(){
     const uu=L.arch==='coal'?'Ton':'BCM';
     h+='<div style="background:#14110e;border:1px solid #3d342a;border-radius:10px;padding:12px">';
     h+='<div style="font-size:11px;font-weight:800;letter-spacing:.6px;color:#fbbf24;margin-bottom:8px">📊 HASIL — folder "'+L.folder+'" ('+L.results.length+' variant)</div>';
-    h+='<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:640px">';
-    h+='<tr style="border-bottom:1px solid #3d342a"><th style="text-align:left;padding:6px 8px;color:#fbbf24">Kombinasi</th><th style="text-align:left;padding:6px 8px;color:#fbbf24">Fleet</th><th style="text-align:right;padding:6px 8px;color:#fbbf24">Capex Alat</th><th style="text-align:right;padding:6px 8px;color:#fbbf24">Modal Awal</th><th style="text-align:right;padding:6px 8px;color:#fbbf24">Opex/bln</th><th style="text-align:right;padding:6px 8px;color:#fbbf24">Rate ($/'+uu+')</th><th style="padding:6px 8px"></th></tr>';
+    h+='<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:820px">';
+    h+='<tr style="border-bottom:1px solid #3d342a"><th style="text-align:left;padding:6px 8px;color:#fbbf24">Kombinasi</th><th style="text-align:left;padding:6px 8px;color:#fbbf24">Fleet</th><th style="text-align:right;padding:6px 8px;color:#fbbf24">Capex Alat</th><th style="text-align:right;padding:6px 8px;color:#fbbf24">Modal Awal</th><th style="text-align:right;padding:6px 8px;color:#fbbf24">Opex/bln</th><th style="text-align:right;padding:6px 8px;color:#fbbf24">Total Produksi ('+uu+')</th><th style="text-align:right;padding:6px 8px;color:#fbbf24">Total Cost</th><th style="text-align:right;padding:6px 8px;color:#fbbf24">Rate ($/'+uu+')</th><th style="padding:6px 8px"></th></tr>';
     const bestRate=Math.min.apply(null,L.results.filter(r=>r.rate>0).map(r=>r.rate));
+    const fmtProd=p=>{ p=+p||0; return p>=1e6 ? (p/1e6).toLocaleString('id-ID',{maximumFractionDigits:1})+' jt' : Math.round(p).toLocaleString('id-ID'); };
     L.results.forEach((r,i)=>{
       const best=r.rate>0&&r.rate===bestRate;
       h+='<tr style="border-bottom:1px solid #241a12'+(best?';background:rgba(132,204,22,.07)':'')+'">';
@@ -4693,12 +5060,14 @@ function genRender(){
       h+='<td style="padding:6px 8px;text-align:right;color:#e7e5e4">Rp '+cfFmtB(r.eqCap)+'</td>';
       h+='<td style="padding:6px 8px;text-align:right;color:#e7e5e4">Rp '+cfFmtB(r.modal)+'</td>';
       h+='<td style="padding:6px 8px;text-align:right;color:#e7e5e4">Rp '+cfFmtB(r.opexMo)+'</td>';
+      h+='<td style="padding:6px 8px;text-align:right;color:#e7e5e4">'+fmtProd(r.prod)+'</td>';
+      h+='<td style="padding:6px 8px;text-align:right;color:#e7e5e4">Rp '+cfFmtB(r.cost)+'</td>';
       h+='<td style="padding:6px 8px;text-align:right;color:'+(best?'#84cc16':'#fde68a')+';font-weight:800">$'+(+r.rate).toFixed(4)+'</td>';
       h+='<td style="padding:6px 8px;text-align:right"><button class="btn btn-sec" onclick="genOpen('+i+')" style="padding:3px 10px;font-size:11px">Buka →</button></td>';
       h+='</tr>';
     });
     h+='</table></div>';
-    h+='<div class="text-xs" style="color:#78716c;margin-top:8px">⭐ = rate terendah. Tiap variant adalah project penuh — buka untuk lihat semua tab (Calculator, TCO, Cashflow, ⚖️ Uji Kelayakan). Rate = HPP × margin 1.2.</div>';
+    h+='<div class="text-xs" style="color:#78716c;margin-top:8px">⭐ = rate terendah. Tiap variant adalah project penuh — buka untuk lihat semua tab (Calculator, TCO, Cashflow, ⚖️ Uji Kelayakan). Rate = HPP × margin 1.2. Total Produksi = kapasitas efektif fleet selama project (basis HPP/Rate — bisa &gt; target klien karena ada cadangan kapasitas); Total Cost = seluruh biaya project (equipment + support + manpower + maintenance) — cek: Total Cost ÷ (Total Produksi × kurs) = HPP.</div>';
     h+='</div>';
   }
   host.innerHTML=h;
@@ -8038,7 +8407,7 @@ function _applyScenario(d){
   if(Array.isArray(d.manpower)) manpower = d.manpower;
   cfState = (d.cashflow && typeof d.cashflow==='object')
     ? {lag:(d.cashflow.lag!=null?+d.cashflow.lag:1), prod:(d.cashflow.prod&&typeof d.cashflow.prod==='object')?d.cashflow.prod:{},
-       basis:(d.cashflow.basis==='coal'?'coal':(d.cashflow.basis==='rental'?'rental':'ob')), flat:(d.cashflow.flat!=null?d.cashflow.flat:null), rate:(d.cashflow.rate!=null?d.cashflow.rate:null), margin:(d.cashflow.margin!=null?d.cashflow.margin:null), tenorYears:(d.cashflow.tenorYears!=null?d.cashflow.tenorYears:null)}
+       basis:(d.cashflow.basis==='coal'?'coal':(d.cashflow.basis==='rental'?'rental':(d.cashflow.basis==='haul'?'haul':'ob'))), flat:(d.cashflow.flat!=null?d.cashflow.flat:null), rate:(d.cashflow.rate!=null?d.cashflow.rate:null), margin:(d.cashflow.margin!=null?d.cashflow.margin:null), tenorYears:(d.cashflow.tenorYears!=null?d.cashflow.tenorYears:null)}
     : {lag:1, prod:{}, basis:'ob', flat:null, rate:null, margin:null, tenorYears:null};
   { const fx=(d.cashflow&&d.cashflow.finx)||{}; cfxState={disc:(fx.disc!=null?+fx.disc:10), tax:(fx.tax!=null?+fx.tax:22), bpjs:(fx.bpjs!=null?+fx.bpjs:11)}; }
   /* Migrate: ensure Operator row has auto flag (ratio × total unit) and
