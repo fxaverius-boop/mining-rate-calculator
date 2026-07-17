@@ -5227,12 +5227,12 @@ const STREAM_TAG_OPTIONS = [
    (Genset/Pompa/Waterfill/Tower Lamp), civil material, Light Vehicle, & EV. */
 function prodUnitsByStream(){
   const needsOperator = c => /Excavator|Wheel Loader|Bulldozer|Motor Grader|Vibro|Dump Truck|Water Truck|Fuel Truck|Lube Truck/i.test(c||'');
-  const isEV = e => /\bEV\b/i.test(e.model||'') || /\bEV\b/i.test(e.merk||'');
   const u = { ob:0, coal_get:0, coal_haul:0, rental:0, hrm:0, shared:0, all:0 };
   equip.forEach(e => {
     if(!(e.qty>0)) return;
     if(!needsOperator(e.cat)) return;
-    if(isEV(e)) return;
+    /* Unit EV IKUT dihitung — DT/alat EV tetap butuh operator (dulu dikecualikan
+       utk simulator EV; bikin qty operator coal hauling salah — fix 2026-07-17). */
     const q = +e.qty||0;
     u.all += q;
     const st = e.stream || DEFAULT_STREAM_FOR(e.cat);
@@ -6713,7 +6713,7 @@ function calc(){
   /* Operator count auto = ratio × total equipment — EXCLUDE:
        - Vessel (tray/body, attachment DT yang sudah punya operator via chassis)
        - Light Vehicle / LV (sudah dihandle via CAPEX Support, bukan production unit)
-       - EV powertrain (unit EV tidak dimasukan dalam perhitungan Operator) */
+     Unit EV IKUT dihitung (tetap butuh operator — pengecualian lama dihapus 2026-07-17). */
   /* Unit produksi per stream — basis auto-qty operator (helper bersama dgn TCO). */
   const unitsByStream = prodUnitsByStream();
   const totalEqForOp = unitsByStream.all;
