@@ -3063,6 +3063,14 @@ const SUP_BUDGET_TYPE = (()=>{
      3. Keyword regex — catches renamed/custom items */
 function isCapexSupport(name){
   if(!name) return false;
+  /* Override PER-BARIS dari tabel Calculator (s.budget='capex'|'opex', toggle 💠 di baris)
+     — menang atas klasifikasi nama/kategori. CAPEX = 1× bayar (qty × cost), masuk Modal Awal. */
+  try{
+    if(typeof support!=='undefined' && Array.isArray(support)){
+      const r=support.find(x=>x && x.name===name && (x.budget==='capex'||x.budget==='opex'));
+      if(r) return r.budget==='capex';
+    }
+  }catch(e){}
   if(SUP_BUDGET_TYPE[name]) return SUP_BUDGET_TYPE[name] === 'capex';
   /* Category fallback: kategori yang isi default-nya full CAPEX:
        A = Core Mining Operations (pit infra, workshop, fuel tank, dispatch, dll)
@@ -5841,7 +5849,7 @@ function renderSupport(){
     const prjDisplay = fmt(prjVal);
     const inc = supInc(s);
     return `<tr style="${inc?'':'opacity:.45'}">
-      <td style="padding-left:24px;${tdStyle}"><select class="num-in" onchange="support[${i}].name=this.value;autoFillSupCost(${i},this.value);renderSupport();calc()" style="padding:4px 6px;font-size:12px;height:28px">${customOpt}${opts}</select>${isCapex?`<span class="text-[10px] ml-1" style="color:#fbbf24" title="Capex — one-time cost">💠</span>`:''}${streamTagSelect('support', i, support[i].stream)}${(!s.stream||s.stream==='shared')?shareToChecklist('support', i, s):''}</td>
+      <td style="padding-left:24px;${tdStyle}"><select class="num-in" onchange="support[${i}].name=this.value;autoFillSupCost(${i},this.value);renderSupport();calc()" style="padding:4px 6px;font-size:12px;height:28px">${customOpt}${opts}</select><button type="button" class="text-[10px] ml-1" style="background:transparent;border:1px solid ${isCapex?'#fbbf24':'#3d342a'};border-radius:4px;color:${isCapex?'#fbbf24':'#a8a29e'};cursor:pointer;padding:1px 5px;height:20px" title="${isCapex?'CAPEX — dibayar 1× (qty × cost), masuk Modal Awal, tanpa komponen bulanan. Klik → ubah jadi OPEX bulanan.':'OPEX — bulanan (×12 × tahun project). Klik → ubah jadi CAPEX 1× pengeluaran.'}" onclick="supToggleBudget(${i})">${isCapex?'💠 CAPEX 1×':'⟳ OPEX'}</button>${streamTagSelect('support', i, support[i].stream)}${(!s.stream||s.stream==='shared')?shareToChecklist('support', i, s):''}</td>
       <td style="${tdStyle}">${qtyCell}</td>
       <td style="${tdStyle}"><input type="number" class="num-in" value="${s.cost}" step="100000" onchange="support[${i}].cost=+this.value;calc()" ${inStyle}></td>
       <td class="text-right" style="${tdStyle};font-size:12px" id="sup_mo_${i}">${inc?moDisplay:'—'}</td>
@@ -5853,6 +5861,7 @@ function renderSupport(){
 
   /* Short IDR formatter for category subtotals — scale based on magnitude so
      totals stay readable (e.g. "Rp 1.25 M" / "Rp 350 Jt"). */
+  /* (toggle CAPEX/OPEX per baris: supToggleBudget di bawah renderSupport) */
   const fmtSubtotal = v => {
     const a = Math.abs(v);
     if(a>=1e12) return 'Rp '+(v/1e12).toFixed(2)+' T';
@@ -6325,6 +6334,16 @@ function renameSupDBName(i, oldName, newName){
   support.forEach(s=>{ if(s.name===oldName) s.name = newName; });
   SUPPORT_CATALOG[i].name = newName;
   persistSup(); refreshDatalists(); renderSupportDB(); renderSupport(); calc();
+}
+
+/* Toggle jenis anggaran per baris support: CAPEX (1× pengeluaran, qty × cost,
+   masuk Modal Awal) ↔ OPEX (bulanan ×12 × tahun). Disimpan di s.budget →
+   ikut snapshot & sync tim; menang atas klasifikasi nama (isCapexSupport). */
+function supToggleBudget(i){
+  const s=support[i]; if(!s) return;
+  s.budget = isCapexSupport(s.name) ? 'opex' : 'capex';
+  if(typeof markDirty==='function') markDirty();
+  renderSupport(); calc();
 }
 
 function renderSupportDB(){
