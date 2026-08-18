@@ -4329,6 +4329,7 @@ function oocRender(){
      s.machines.map((m,i)=>'<option value="'+i+'"'+(i===_oocSel?' selected':'')+'>'+esc(m.name)+' — '+esc(m.tipe)+(m.cls?' ('+esc(m.cls)+')':'')+'</option>').join('')+'</select></label>';
   h+='<button class="btn btn-sec" onclick="oocAddMachine()" style="padding:6px 12px;font-size:12px">➕ Tambah Alat</button>';
   if(s.machines.length) h+='<button class="btn btn-sec" onclick="oocDelMachine('+_oocSel+')" style="padding:6px 12px;font-size:12px;color:#f87171">🗑 Hapus</button>';
+  h+='<button class="btn btn-sec" onclick="oocExportExcel()" style="padding:6px 12px;font-size:12px;color:#22c55e;border-color:#166534">⬇ Export Excel</button>';
   h+='<span class="text-xs" style="color:#78716c">Sel <b style="color:#7dd3fc">biru</b> = INPUT (editable) · <b style="color:#fbbf24">emas</b> = RUMUS (otomatis). Struktur & rumus = referensi OOC.</span>';
   h+='</div>';
   const m=s.machines[_oocSel];
@@ -4426,6 +4427,86 @@ function oocRender(){
   h+='</div>';
   h+='<div class="text-xs" style="color:#78716c;margin-top:12px">Rumus mengikuti referensi 1:1 — validasi: PC 1250 → Owning 45.55 · Operating 193.60 · OOC 239.15 $/jam; HD465 → 96.43 $/jam; OB 4.068.000 bcm → 2.02 USD/bcm. Alat baru mulai dari 0 (isi sesuai data/quote — tidak ada angka karangan). Katalog & kategori tersimpan di rc_ooc_v1 (sync tim).</div>';
   host.innerHTML=h;
+}
+
+/* ---- EXPORT EXCEL OOC — Ringkasan + 1 sheet per kategori (tabel alat, rollup
+   cost per bcm/ton, dan blok perhitungan per alat ala referensi). xlsx-js-style. ---- */
+function oocExportExcel(){
+  if(typeof XLSX==='undefined'){ alert('Library Excel (xlsx-js-style) belum termuat. Periksa koneksi internet.'); return; }
+  const s=oocState();
+  const NAVY='0E2841', GOLD='B45309', GREEN='15803D', LT='F4F1EC', LINE='D8D2C8';
+  const bAll={top:{style:'thin',color:{rgb:LINE}},bottom:{style:'thin',color:{rgb:LINE}},left:{style:'thin',color:{rgb:LINE}},right:{style:'thin',color:{rgb:LINE}}};
+  const F=(o)=>Object.assign({name:'Calibri',sz:10},o||{});
+  const sHead={font:F({bold:true,color:{rgb:'FFFFFF'}}),fill:{fgColor:{rgb:NAVY}},alignment:{horizontal:'center',vertical:'center'},border:bAll};
+  const sCell={font:F(),alignment:{vertical:'center'},border:bAll};
+  const sSym ={font:F({italic:true,color:{rgb:'6B7280'},sz:9}),alignment:{vertical:'center'},border:bAll};
+  const sNum ={font:F(),alignment:{horizontal:'right'},border:bAll};
+  const sFml ={font:F({bold:true,color:{rgb:GOLD}}),alignment:{horizontal:'right'},border:bAll};
+  const sTot ={font:F({bold:true,color:{rgb:GREEN}}),alignment:{horizontal:'right'},border:bAll,fill:{fgColor:{rgb:LT}}};
+  const sTitle={font:F({bold:true,sz:13,color:{rgb:NAVY}})};
+  const sSec ={font:F({bold:true,color:{rgb:'FFFFFF'}}),fill:{fgColor:{rgb:'AF0402'}},alignment:{vertical:'center'},border:bAll};
+  const T=(v,st)=>({v:String(v==null?'':v),t:'s',s:st||sCell});
+  const N2=(v,st)=>({v:+(+v||0).toFixed(2),t:'n',z:'#,##0.00',s:st||sNum});
+  const N4=(v,st)=>({v:+(+v||0).toFixed(4),t:'n',z:'#,##0.0000',s:st||sFml});
+  const N0=(v,st)=>({v:Math.round(+v||0),t:'n',z:'#,##0',s:st||sNum});
+  const wb=XLSX.utils.book_new();
+  const put=(name,grid,cols)=>{ const ws=XLSX.utils.aoa_to_sheet(grid); if(cols) ws['!cols']=cols; XLSX.utils.book_append_sheet(wb,ws,name); };
+  /* ---- Sheet 1: Ringkasan ---- */
+  const g1=[[T('OOC CALCULATOR — RINGKASAN',sTitle)],[T('Rumus mengikuti referensi "Ilustrasi Estimasi OB Cost per bcm dengan OOC" (folder OOC Referensi)',sSym)],[],
+    [T('KATALOG ALAT',sSec)],
+    [T('Alat',sHead),T('Tipe',sHead),T('Class',sHead),T('Owning $/jam',sHead),T('Operating $/jam',sHead),T('TOTAL OOC $/jam',sHead)]];
+  s.machines.forEach(m=>{ const R=oocCalcMachine(m);
+    g1.push([T(m.name),T(m.tipe),T(m.cls||''),N2(R.L),N2(R.oper),N2(R.total,sTot)]); });
+  g1.push([]);
+  g1.push([T('RINGKASAN KATEGORI',sSec)]);
+  g1.push([T('Kategori',sHead),T('Target',sHead),T('Satuan',sHead),T('Total Cost (USD)',sHead),T('Cost per Satuan (USD)',sHead)]);
+  [['ob'],['coal'],['mineral']].forEach(([ck])=>{ const c=s.cats[ck]; let tot=0;
+    c.rows.forEach(r=>{ const mm=oocFindM(s,r.mid); if(mm) tot+=(+r.hours||0)*oocCalcMachine(mm).total; });
+    g1.push([T(c.label),N0(c.target),T(c.unit),N0(tot),(+c.target>0?N4(tot/c.target,sTot):T('—',sNum))]); });
+  put('Ringkasan',g1,[{wch:24},{wch:14},{wch:10},{wch:14},{wch:15},{wch:16}]);
+  /* ---- Sheet per kategori ---- */
+  [['ob','OOC OB'],['coal','OOC Coal'],['mineral','OOC Mineral']].forEach(([ck,sheetName])=>{
+    const c=s.cats[ck]; let tot=0;
+    const g=[[T(c.label.toUpperCase()+' — OWNING & OPERATING COST',sTitle)],[],
+      [T('Target produksi',sCell),N0(c.target),T(c.unit,sCell)],[],
+      [T('DAFTAR ALAT',sSec)],
+      [T('Alat',sHead),T('Tipe',sHead),T('Class',sHead),T('Qty',sHead),T('Jam kerja',sHead),T('OOC $/jam',sHead),T('Cost (USD)',sHead)]];
+    c.rows.forEach(r=>{ const mm=oocFindM(s,r.mid); if(!mm) return; const R=oocCalcMachine(mm);
+      const cost=(+r.hours||0)*R.total; tot+=cost;
+      g.push([T(mm.name),T(mm.tipe),T(mm.cls||''),N0(r.qty),N0(r.hours),N2(R.total),N0(cost)]); });
+    g.push([T('TOTAL COST',{font:F({bold:true}),border:bAll}),T(''),T(''),T(''),T(''),T(''),N0(tot,sTot)]);
+    g.push([T(c.label+' Cost per '+c.unit,{font:F({bold:true}),border:bAll}),T(''),T(''),T(''),T(''),T(''),(+c.target>0?N4(tot/c.target,sTot):T('—'))]);
+    /* Blok perhitungan per alat (ala referensi) — hanya alat yang dipakai kategori ini */
+    const used=[]; c.rows.forEach(r=>{ if(used.indexOf(r.mid)<0 && oocFindM(s,r.mid)) used.push(r.mid); });
+    used.forEach(mid=>{ const m=oocFindM(s,mid); const R=oocCalcMachine(m);
+      g.push([]);
+      g.push([T('PERHITUNGAN — '+m.name+' ('+m.tipe+(m.cls?' '+m.cls:'')+')',sSec)]);
+      g.push([T('Komponen',sHead),T('Simbol / Rumus',sHead),T('Nilai',sHead),T('Satuan',sHead)]);
+      const row=(a,b,cv,d,st)=>g.push([T(a),T(b,sSym),cv,T(d,sSym)]);
+      row('Delivered Price','',N0(R.delivered),'USD');
+      if(R.tire>0){ row('Total Harga Ban','',N0(R.tire),'USD'); row('Delivered less Tire','A = Delivered − Ban',N0(R.A),'USD'); }
+      row('Salvage Value','B = %Salvage × Delivered',N0(R.B),'USD');
+      row('Net Depreciation','C = A − B',N0(R.C),'USD');
+      row('Depreciation period','n',N0(R.n),'tahun');
+      row('Annual Use','D',N0(R.D),'jam');
+      row('Depreciation','E = C/(n×D)',N2(R.E,sFml),'USD/jam');
+      row('Trade-in rate','r = B/A',N4(R.r,sFml),'');
+      row('Factor','F = 1−((n−1)(1−r)/n)',N4(R.F,sFml),'');
+      row('Annual Rates','J = %Int+%Tax+%Ins',N4(R.J,sFml),'');
+      row('Interest+Tax+Insurance','K = (F×Delivered×J)/D',N2(R.K,sFml),'USD/jam');
+      row('TOTAL OWNING','L = E + K',N2(R.L,sTot),'USD/jam');
+      row('Fuel','cons × unit cost',N2(R.fuel,sFml),'USD/jam');
+      row('Lubricant, Filter & Periodic Maint','Σ (cons × unit cost)',N2(R.lubeTot,sFml),'USD/jam');
+      row('Repair / Maintenance','input',N2(R.repairHr),'USD/jam');
+      row('Ban / Undercarriage','input',N2(R.tiresHr),'USD/jam');
+      row('Upah Operator','input',N2(R.wage),'USD/jam');
+      row('TOTAL OPERATING','Σ',N2(R.oper,sTot),'USD/jam');
+      row('TOTAL OOC','Owning + Operating',N2(R.total,sTot),'USD/jam');
+    });
+    put(sheetName,g,[{wch:32},{wch:26},{wch:14},{wch:10},{wch:11},{wch:11},{wch:14}]);
+  });
+  const stamp=new Date().toISOString().slice(0,10);
+  XLSX.writeFile(wb,'OOC-Calculator_'+stamp+'.xlsx');
 }
 
 /* ================================================================
