@@ -422,6 +422,7 @@
       <button class="tab-btn" data-tab="calc">📊 Calculator</button>
       <button class="tab-btn" data-tab="prodcalc">🏭 Calculator Produksi</button>
       <button class="tab-btn" data-tab="gen">🏗️ Generator Budget</button>
+      <button class="tab-btn" data-tab="ooc">🧾 OOC Calculator</button>
       <button class="tab-btn" data-tab="plant">🔧 Plant Manpower</button>
       <button class="tab-btn" data-tab="org">🏢 Struktur Organisasi</button>
       <button class="tab-btn" data-tab="maint">💰 Maintenance Cost</button>
@@ -441,6 +442,13 @@
     <div class="h-section">💵 Project Cashflow (Bulanan)</div>
     <div class="text-xs mb-3" style="color:#a8a29e">Proyeksi kas bulanan M0…Mn — Revenue (produksi × Rate Rekomendasi, kas masuk sesuai termin) dikurangi Capex awal + Opex bulanan (ditarik dari data project). Menampilkan kebutuhan modal puncak & titik balik modal.</div>
     <div id="cf_body"></div>
+  </div>
+
+  <!-- ============ TAB: OOC CALCULATOR (Owning & Operating Cost per unit → cost per bcm/ton) ============ -->
+  <div id="tab-ooc" class="tab-panel">
+    <div class="h-section">🧾 OOC Calculator — Owning &amp; Operating Cost</div>
+    <div class="text-xs mb-3" style="color:#a8a29e">Perhitungan OOC per unit alat mengikuti struktur referensi (Delivered Price → Depresiasi <b>E=C/(n×D)</b> + Interest/Tax/Insurance <b>K=(F×A×J)/D</b> → Owning; Fuel/Pelumas/Filter/Repair/Ban/Upah → Operating) lalu di-rollup ke <b>Cost per bcm/ton</b> untuk kategori <b>OB · Coal · Mineral</b>. Sel input bisa diedit; sel hasil dihitung otomatis. Katalog alat tersinkron ke tim.</div>
+    <div id="ooc_body"></div>
   </div>
 
   <!-- ============ TAB: GENERATOR BUDGET (target+jarak+fleet → 4 kombinasi tier) ============ -->
@@ -1861,7 +1869,8 @@
   var SYNC_KEYS = ['rc_projects_v1', 'rc_active_project_v1', 'rc_support_catalog_v1', 'rc_mp_catalog_v1', 'rc_project_history_v1',
     'rc_plant_manpower_v1', 'rc_maint_v1', 'rc_mess_rules_v1', // katalog global yang memengaruhi perhitungan TCO
     'rc_folders_v1', 'rc_project_folders_v1', // folder project (grouping tampilan, sync tim)
-    'rc_feas_v1', 'rc_gen_rules_v1']; // settings Uji Kelayakan + rules Generator Budget (sync tim)
+    'rc_feas_v1', 'rc_gen_rules_v1', // settings Uji Kelayakan + rules Generator Budget (sync tim)
+    'rc_ooc_v1']; // katalog & kategori OOC Calculator (sync tim)
   var DEBOUNCE_MS = 1500;
 
   // Jalankan fn saat DOM siap; jika sudah lewat, jalankan sekarang.
@@ -1944,6 +1953,7 @@
       if (cat.pfmap != null) _origSetItem('rc_project_folders_v1', JSON.stringify(cat.pfmap));  // peta project→folder
       if (cat.feas != null) _origSetItem('rc_feas_v1', JSON.stringify(cat.feas));               // settings Uji Kelayakan
       if (cat.genrules != null) _origSetItem('rc_gen_rules_v1', JSON.stringify(cat.genrules));  // rules Generator Budget
+      if (cat.ooc != null) _origSetItem('rc_ooc_v1', JSON.stringify(cat.ooc));                  // katalog OOC Calculator
       _origSetItem('rc_project_history_v1', JSON.stringify(row.history || {}));
       state.lastPulledAt = row.updated_at || null;
     } finally { state.suspend = false; }
@@ -1952,7 +1962,8 @@
       var _cat = row.catalogs || {};
       if ((_cat.folders == null && localStorage.getItem('rc_folders_v1'))
         || (_cat.feas == null && localStorage.getItem('rc_feas_v1'))
-        || (_cat.genrules == null && localStorage.getItem('rc_gen_rules_v1'))) markDirty();
+        || (_cat.genrules == null && localStorage.getItem('rc_gen_rules_v1'))
+        || (_cat.ooc == null && localStorage.getItem('rc_ooc_v1'))) markDirty();
     } catch (e) {}
   }
 
@@ -1992,7 +2003,8 @@
           sup: lsGet('rc_support_catalog_v1', null), mp: lsGet('rc_mp_catalog_v1', null),
           pm: lsGet('rc_plant_manpower_v1', null), maint: lsGet('rc_maint_v1', null), mess: lsGet('rc_mess_rules_v1', null),
           folders: lsGet('rc_folders_v1', null), pfmap: lsGet('rc_project_folders_v1', null), // folder project (grouping tampilan)
-          feas: lsGet('rc_feas_v1', null), genrules: lsGet('rc_gen_rules_v1', null) // settings Uji Kelayakan + rules Generator
+          feas: lsGet('rc_feas_v1', null), genrules: lsGet('rc_gen_rules_v1', null), // settings Uji Kelayakan + rules Generator
+          ooc: lsGet('rc_ooc_v1', null) // katalog & kategori OOC Calculator
         },
         history: lsGet('rc_project_history_v1', {}),
         updated_by: state.email,
@@ -3818,6 +3830,7 @@ document.querySelectorAll('.tab-btn[data-tab]').forEach(b=>{
     if(b.dataset.tab==='finx'){ cfxRender(); }
     if(b.dataset.tab==='feas'){ feasRender(); }
     if(b.dataset.tab==='gen'){ genRender(); }
+    if(b.dataset.tab==='ooc'){ oocRender(); }
     /* Lazy-load the EV simulator iframe on first visit — avoids loading the
        React/Babel runtime (~200KB) for users who never open this tab. */
     if(b.dataset.tab==='ev-sim'){
@@ -4199,6 +4212,221 @@ function cfxRender(){
   }catch(e){ console.warn('cfx chart',e); }
 }
 function cfxSet(k,v){ cfxState[k]=(v===''||v==null)?0:(+v||0); if(typeof markDirty==='function') markDirty(); cfxRender(); }
+
+/* ================================================================
+   🧾 OOC CALCULATOR — Owning & Operating Cost per unit alat, rollup ke
+   cost per bcm/ton utk 3 kategori (OB / Coal / Mineral).
+   RUMUS PERSIS mengikuti referensi "Ilustrasi Estimasi OB Cost per bcm
+   dengan OOC" (folder OOC Referensi):
+     A = Delivered − Total Harga Ban · B = %Salvage × A · C = A − B
+     E = C/(n×D) [depresiasi/jam] · r = B/A · F = 1−((n−1)(1−r)/n)
+     J = %Int+%Tax+%Ins · K = (F × Delivered PENUH × J)/D  ← sesuai contoh HD465
+     Total Owning L = E+K · Operating = Σ(cons × unit cost) + repair + ban + upah
+     Total OOC = L + Operating · Cost kategori = Σ(jam × OOC/jam) ÷ target
+   Katalog alat + kategori di rc_ooc_v1 (sync tim — wiring push+hydrate cloud-boot).
+   Seed awal = 2 alat contoh referensi (PC 1250 & HD465) utk validasi angka.
+   ================================================================ */
+const LS_OOC='rc_ooc_v1';
+/* Seed dari referensi (BUKAN angka karangan — persis kolom contoh). */
+const OOC_SEED={
+  machines:[
+    {id:'m_pc1250', name:'PC 1250', tipe:'Excavator', cls:'125 ton', inp:{
+      delivered:965000, tireF:0, tireR:0, salvagePct:10, n:5, annD:5000,
+      intPct:5, taxPct:10, insPct:5, fuelCons:103, fuelCost:1.28,
+      crankCons:0.18, crankCost:2.8, transCons:0.05, transCost:2.8,
+      finalCons:0.022, finalCost:2.8, hydCons:0.14, hydCost:2.4,
+      greaseCons:0.2, greaseCost:7.7, filterPct:60, filterCost:5.36,
+      repairHr:35.69, tiresHr:15.77, wage:4.5 }},
+    {id:'m_hd465', name:'Komatsu HD465', tipe:'Dump Truck', cls:'55 ton', inp:{
+      delivered:495000, tireF:5000, tireR:5000, salvagePct:5, n:5, annD:4000,
+      intPct:5, taxPct:10, insPct:5, fuelCons:37.5, fuelCost:1.28,
+      crankCons:0.16, crankCost:2.8, transCons:0.22, transCost:2.8,
+      finalCons:0.07, finalCost:2.8, hydCons:0.032, hydCost:2.4,
+      greaseCons:0.02, greaseCost:7.7, filterPct:60, filterCost:1.782,
+      repairHr:6.5, tiresHr:5.92, wage:4.5 }}
+  ],
+  cats:{
+    ob:{ label:'OB (Overburden)', unit:'bcm', target:4068000, rows:[
+      {mid:'m_pc1250', qty:3, hours:15000},{mid:'m_hd465', qty:12, hours:48000}] },
+    coal:{ label:'Coal Getting', unit:'ton', target:0, rows:[] },
+    mineral:{ label:'Mineral', unit:'ton', target:0, rows:[] }
+  }
+};
+function oocState(){
+  let s=null; try{ s=JSON.parse(localStorage.getItem(LS_OOC)||'null'); }catch(e){ s=null; }
+  if(!s||!Array.isArray(s.machines)||!s.cats) s=JSON.parse(JSON.stringify(OOC_SEED));
+  ['ob','coal','mineral'].forEach(k=>{ if(!s.cats[k]) s.cats[k]=JSON.parse(JSON.stringify(OOC_SEED.cats[k])); if(!Array.isArray(s.cats[k].rows)) s.cats[k].rows=[]; });
+  return s;
+}
+function oocSave(s){ try{ localStorage.setItem(LS_OOC, JSON.stringify(s)); }catch(e){} }
+/* ---- MESIN HITUNG per alat — rumus referensi, kembalikan seluruh langkah ---- */
+function oocCalcMachine(m){
+  const v=k=>+((m.inp||{})[k])||0;
+  const delivered=v('delivered'), tire=v('tireF')+v('tireR');
+  const A=delivered-tire;                       /* Delivered Price less Tire */
+  const B=delivered*v('salvagePct')/100;        /* Salvage = % × Delivered PENUH (contoh HD465: 5%×495.000=24.750) */
+  const C=A-B;                                  /* Net Depreciation value */
+  const n=Math.max(1,v('n')), D=v('annD');
+  const E=D>0?C/(n*D):0;                        /* Depreciation USD/hr */
+  const r=A>0?B/A:0;                            /* Trade-in value rate */
+  const F=1-(((n-1)*(1-r))/n);                  /* Factor */
+  const J=(v('intPct')+v('taxPct')+v('insPct'))/100;  /* Annual Rates */
+  const K=D>0?(F*delivered*J)/D:0;              /* Interest+Ins+Tax USD/hr (delivered PENUH — contoh HD465) */
+  const L=E+K;                                  /* Total Owning */
+  const fuel=v('fuelCons')*v('fuelCost');
+  const lube={ crank:v('crankCons')*v('crankCost'), trans:v('transCons')*v('transCost'),
+    final:v('finalCons')*v('finalCost'), hyd:v('hydCons')*v('hydCost'), grease:v('greaseCons')*v('greaseCost'),
+    filter:(v('filterPct')/100)*v('filterCost') };
+  const lubeTot=lube.crank+lube.trans+lube.final+lube.hyd+lube.grease+lube.filter;
+  const oper=fuel+lubeTot+v('repairHr')+v('tiresHr')+v('wage');   /* Total Operating */
+  const total=L+oper;                            /* Total Owning & Operating */
+  return {delivered,tire,A,B,C,n,D,E,r,F,J,K,L,fuel,lube,lubeTot,
+    repairHr:v('repairHr'), tiresHr:v('tiresHr'), wage:v('wage'), oper, total};
+}
+let _oocSel=0;   /* index alat terpilih di editor (view-state lokal) */
+function oocFindM(s,mid){ return s.machines.find(x=>x.id===mid); }
+/* ---- setters (semua simpan + rerender; markDirty utk indikator save) ---- */
+function oocSetInp(mi,k,val){ const s=oocState(); if(!s.machines[mi])return; s.machines[mi].inp[k]=(val===''?0:+val||0); oocSave(s); if(typeof markDirty==='function')markDirty(); oocRender(); }
+function oocSetMeta(mi,k,val){ const s=oocState(); if(!s.machines[mi])return; s.machines[mi][k]=String(val||''); oocSave(s); if(typeof markDirty==='function')markDirty(); oocRender(); }
+function oocSelect(mi){ _oocSel=+mi||0; oocRender(); }
+function oocAddMachine(){
+  const name=(prompt('Nama alat baru (mis. "CAT 390F"):')||'').trim(); if(!name) return;
+  const tipe=(prompt('Tipe alat (mis. Excavator / Dump Truck / Dozer / Grader):','Excavator')||'').trim();
+  const cls=(prompt('Class alat (mis. 90 ton / 50 ton):','')||'').trim();
+  const s=oocState();
+  /* Input baru SENGAJA 0 semua — angka harus diisi user/referensi, tidak dikarang. */
+  s.machines.push({id:'m_'+Date.now().toString(36), name, tipe, cls, inp:{
+    delivered:0,tireF:0,tireR:0,salvagePct:0,n:5,annD:0,intPct:0,taxPct:0,insPct:0,
+    fuelCons:0,fuelCost:0,crankCons:0,crankCost:0,transCons:0,transCost:0,finalCons:0,finalCost:0,
+    hydCons:0,hydCost:0,greaseCons:0,greaseCost:0,filterPct:0,filterCost:0,repairHr:0,tiresHr:0,wage:0 }});
+  oocSave(s); if(typeof markDirty==='function')markDirty(); _oocSel=s.machines.length-1; oocRender();
+}
+function oocDelMachine(mi){
+  const s=oocState(); const m=s.machines[mi]; if(!m) return;
+  if(!confirm('Hapus alat "'+m.name+'" dari katalog OOC? Baris kategori yang memakainya ikut dihapus.')) return;
+  ['ob','coal','mineral'].forEach(k=>{ s.cats[k].rows=s.cats[k].rows.filter(r=>r.mid!==m.id); });
+  s.machines.splice(mi,1); oocSave(s); if(typeof markDirty==='function')markDirty();
+  _oocSel=Math.max(0,Math.min(_oocSel,s.machines.length-1)); oocRender();
+}
+function oocCatSet(ck,k,val){ const s=oocState(); if(!s.cats[ck])return; s.cats[ck][k]=(k==='unit')?String(val):((val===''?0:+val||0)); oocSave(s); if(typeof markDirty==='function')markDirty(); oocRender(); }
+function oocCatRowSet(ck,ri,k,val){ const s=oocState(); const r=(s.cats[ck]||{}).rows[ri]; if(!r)return; r[k]=(k==='mid')?String(val):((val===''?0:+val||0)); oocSave(s); if(typeof markDirty==='function')markDirty(); oocRender(); }
+function oocCatRowAdd(ck){ const s=oocState(); if(!s.machines.length){ alert('Tambah alat dulu di katalog.'); return; } s.cats[ck].rows.push({mid:s.machines[0].id, qty:1, hours:0}); oocSave(s); if(typeof markDirty==='function')markDirty(); oocRender(); }
+function oocCatRowDel(ck,ri){ const s=oocState(); s.cats[ck].rows.splice(ri,1); oocSave(s); if(typeof markDirty==='function')markDirty(); oocRender(); }
+/* ---- RENDER ---- */
+function oocRender(){
+  const host=$('ooc_body'); if(!host) return;
+  const s=oocState();
+  if(_oocSel>=s.machines.length) _oocSel=0;
+  const esc=t=>String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  const f2=v=>(+v||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const f0=v=>Math.round(+v||0).toLocaleString('en-US');
+  const inum=(mi,k,val,step,w)=>'<input type="number" step="'+(step||'any')+'" value="'+(+val||0)+'" onchange="oocSetInp('+mi+',\''+k+'\',this.value)" class="num-in mono" style="width:'+(w||90)+'px;padding:3px 6px;font-size:12px;background:#0c1620;border-color:#155e75;color:#7dd3fc" title="INPUT — bisa diedit">';
+  const fml=v=>'<span class="mono" style="color:#fbbf24;font-weight:800">'+f2(v)+'</span>';
+  let h='';
+  /* ---- pemilih alat + tambah ---- */
+  h+='<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px">';
+  h+='<label class="text-xs" style="color:#a8a29e">Alat (katalog OOC)<br><select onchange="oocSelect(this.value)" class="num-in mt-1" style="width:260px">'+
+     s.machines.map((m,i)=>'<option value="'+i+'"'+(i===_oocSel?' selected':'')+'>'+esc(m.name)+' — '+esc(m.tipe)+(m.cls?' ('+esc(m.cls)+')':'')+'</option>').join('')+'</select></label>';
+  h+='<button class="btn btn-sec" onclick="oocAddMachine()" style="padding:6px 12px;font-size:12px">➕ Tambah Alat</button>';
+  if(s.machines.length) h+='<button class="btn btn-sec" onclick="oocDelMachine('+_oocSel+')" style="padding:6px 12px;font-size:12px;color:#f87171">🗑 Hapus</button>';
+  h+='<span class="text-xs" style="color:#78716c">Sel <b style="color:#7dd3fc">biru</b> = INPUT (editable) · <b style="color:#fbbf24">emas</b> = RUMUS (otomatis). Struktur & rumus = referensi OOC.</span>';
+  h+='</div>';
+  const m=s.machines[_oocSel];
+  if(m){
+    const mi=_oocSel, R=oocCalcMachine(m);
+    /* meta alat */
+    h+='<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">';
+    h+='<label class="text-xs" style="color:#a8a29e">Nama<br><input value="'+esc(m.name)+'" onchange="oocSetMeta('+mi+',\'name\',this.value)" class="num-in mt-1" style="width:180px"></label>';
+    h+='<label class="text-xs" style="color:#a8a29e">Tipe<br><input value="'+esc(m.tipe)+'" onchange="oocSetMeta('+mi+',\'tipe\',this.value)" class="num-in mt-1" style="width:140px" list="ooc_tipe_dl"></label>';
+    h+='<datalist id="ooc_tipe_dl"><option>Excavator</option><option>Dump Truck</option><option>Bulldozer</option><option>Motor Grader</option><option>Wheel Loader</option><option>Drill</option></datalist>';
+    h+='<label class="text-xs" style="color:#a8a29e">Class<br><input value="'+esc(m.cls||'')+'" onchange="oocSetMeta('+mi+',\'cls\',this.value)" class="num-in mt-1" style="width:110px" placeholder="mis. 90 ton"></label>';
+    h+='</div>';
+    /* dua kolom: OWNING & OPERATING */
+    h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(430px,1fr));gap:12px;margin-bottom:14px">';
+    /* OWNING */
+    h+='<div style="background:#14110e;border:1px solid #3d342a;border-radius:10px;padding:12px">';
+    h+='<div style="font-size:12px;font-weight:800;letter-spacing:.5px;color:#fbbf24;margin-bottom:8px">🏗️ OWNING COST</div>';
+    h+='<table style="width:100%;border-collapse:collapse;font-size:12px">';
+    const row=(lbl,mid_,val)=>'<tr style="border-bottom:1px solid #241a12"><td style="padding:4px 6px;color:#d6d3d1">'+lbl+'</td><td style="padding:4px 6px;color:#78716c;font-size:11px">'+(mid_||'')+'</td><td style="padding:4px 6px;text-align:right">'+val+'</td></tr>';
+    h+=row('Delivered Price (USD)','',inum(mi,'delivered',m.inp.delivered,'1000',110));
+    h+=row('Harga Ban — Front (USD)','truck: dikurangkan dulu',inum(mi,'tireF',m.inp.tireF,'500'));
+    h+=row('Harga Ban — Rear (USD)','',inum(mi,'tireR',m.inp.tireR,'500'));
+    h+=row('Delivered less Tire','A = Delivered − Ban',fml(R.A));
+    h+=row('Salvage Value (%)','B = % × Delivered',inum(mi,'salvagePct',m.inp.salvagePct,'1',70)+' → '+fml(R.B));
+    h+=row('Net Depreciation','C = A − B',fml(R.C));
+    h+=row('Depreciation period (tahun)','n',inum(mi,'n',m.inp.n,'1',70));
+    h+=row('Annual Use (jam/tahun)','D',inum(mi,'annD',m.inp.annD,'100'));
+    h+=row('<b>Depreciation (USD/jam)</b>','E = C/(n×D)',fml(R.E));
+    h+=row('Trade-in rate','r = B/A',fml(R.r));
+    h+=row('Factor','F = 1−((n−1)(1−r)/n)',fml(R.F));
+    h+=row('% Interest','G',inum(mi,'intPct',m.inp.intPct,'0.5',70));
+    h+=row('% Tax','H',inum(mi,'taxPct',m.inp.taxPct,'0.5',70));
+    h+=row('% Insurance','I',inum(mi,'insPct',m.inp.insPct,'0.5',70));
+    h+=row('Annual Rates','J = G+H+I',fml(R.J));
+    h+=row('<b>Int+Tax+Ins (USD/jam)</b>','K = (F×Delivered×J)/D',fml(R.K));
+    h+='<tr><td style="padding:6px;color:#fef3c7;font-weight:800">TOTAL OWNING (USD/jam)</td><td style="padding:6px;color:#78716c;font-size:11px">L = E + K</td><td style="padding:6px;text-align:right"><span class="mono" style="color:#84cc16;font-weight:800;font-size:15px">'+f2(R.L)+'</span></td></tr>';
+    h+='</table></div>';
+    /* OPERATING */
+    h+='<div style="background:#14110e;border:1px solid #3d342a;border-radius:10px;padding:12px">';
+    h+='<div style="font-size:12px;font-weight:800;letter-spacing:.5px;color:#fbbf24;margin-bottom:8px">⚙️ OPERATING COST</div>';
+    h+='<table style="width:100%;border-collapse:collapse;font-size:12px">';
+    h+='<tr style="color:#a8a29e;border-bottom:1px solid #3d342a"><th style="text-align:left;padding:4px 6px">Komponen</th><th style="text-align:right;padding:4px 6px">Cons</th><th style="text-align:right;padding:4px 6px">Unit cost</th><th style="text-align:right;padding:4px 6px">USD/jam</th></tr>';
+    const orow=(lbl,ck,cc,res)=>'<tr style="border-bottom:1px solid #241a12"><td style="padding:4px 6px;color:#d6d3d1">'+lbl+'</td><td style="padding:4px 6px;text-align:right">'+inum(mi,ck,m.inp[ck],'0.01',70)+'</td><td style="padding:4px 6px;text-align:right">'+inum(mi,cc,m.inp[cc],'0.01',70)+'</td><td style="padding:4px 6px;text-align:right">'+fml(res)+'</td></tr>';
+    h+=orow('⛽ Fuel (L/jam × USD/L)','fuelCons','fuelCost',R.fuel);
+    h+=orow('Crank case','crankCons','crankCost',R.lube.crank);
+    h+=orow('Transmission','transCons','transCost',R.lube.trans);
+    h+=orow('Final Drives','finalCons','finalCost',R.lube.final);
+    h+=orow('Hydraulic Control','hydCons','hydCost',R.lube.hyd);
+    h+=orow('Grease','greaseCons','greaseCost',R.lube.grease);
+    h+='<tr style="border-bottom:1px solid #241a12"><td style="padding:4px 6px;color:#d6d3d1">Filter & periodic maint (%)</td><td style="padding:4px 6px;text-align:right">'+inum(mi,'filterPct',m.inp.filterPct,'5',70)+'</td><td style="padding:4px 6px;text-align:right">'+inum(mi,'filterCost',m.inp.filterCost,'0.01',70)+'</td><td style="padding:4px 6px;text-align:right">'+fml(R.lube.filter)+'</td></tr>';
+    const srow=(lbl,k,res)=>'<tr style="border-bottom:1px solid #241a12"><td style="padding:4px 6px;color:#d6d3d1">'+lbl+'</td><td></td><td style="padding:4px 6px;text-align:right">'+inum(mi,k,m.inp[k],'0.1',70)+'</td><td style="padding:4px 6px;text-align:right">'+fml(res)+'</td></tr>';
+    h+=srow('🔧 Repair/maintenance (USD/jam)','repairHr',R.repairHr);
+    h+=srow('🛞 Ban / Undercarriage (USD/jam)','tiresHr',R.tiresHr);
+    h+=srow('👷 Upah Operator (USD/jam)','wage',R.wage);
+    h+='<tr><td style="padding:6px;color:#fef3c7;font-weight:800">TOTAL OPERATING (USD/jam)</td><td colspan="2" style="padding:6px;color:#78716c;font-size:11px">Σ komponen</td><td style="padding:6px;text-align:right"><span class="mono" style="color:#84cc16;font-weight:800;font-size:15px">'+f2(R.oper)+'</span></td></tr>';
+    h+='</table>';
+    h+='<div style="margin-top:10px;padding:10px;background:linear-gradient(90deg,#fbbf2422,transparent);border:1px solid #fbbf24;border-radius:8px;display:flex;justify-content:space-between;align-items:center"><span style="font-weight:800;color:#fef3c7">💰 TOTAL OOC — '+esc(m.name)+'</span><span class="mono" style="color:#fbbf24;font-weight:800;font-size:18px">'+f2(R.total)+' USD/jam</span></div>';
+    h+='</div></div>';
+  } else {
+    h+='<div class="text-xs" style="color:#a8a29e;font-style:italic;margin-bottom:14px">— Katalog kosong. Klik ➕ Tambah Alat. —</div>';
+  }
+  /* ---- KATEGORI: OB / COAL / MINERAL ---- */
+  h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:12px">';
+  [['ob','⛏️'],['coal','🪨'],['mineral','⛰️']].forEach(([ck,icon])=>{
+    const c=s.cats[ck];
+    let tot=0;
+    const rowsH=c.rows.map((r,ri)=>{
+      const mm=oocFindM(s,r.mid); const ooc=mm?oocCalcMachine(mm).total:0;
+      const cost=(+r.hours||0)*ooc; tot+=cost;
+      const opts=s.machines.map(x=>'<option value="'+esc(x.id)+'"'+(x.id===r.mid?' selected':'')+'>'+esc(x.name)+'</option>').join('');
+      return '<tr style="border-bottom:1px solid #241a12">'+
+        '<td style="padding:3px 4px"><select onchange="oocCatRowSet(\''+ck+'\','+ri+',\'mid\',this.value)" class="num-in" style="width:100%;padding:3px 4px;font-size:11px">'+opts+'</select></td>'+
+        '<td style="padding:3px 4px"><input type="number" min="0" value="'+(+r.qty||0)+'" onchange="oocCatRowSet(\''+ck+'\','+ri+',\'qty\',this.value)" class="num-in mono" style="width:48px;padding:3px 4px;font-size:11px;background:#0c1620;border-color:#155e75;color:#7dd3fc"></td>'+
+        '<td style="padding:3px 4px"><input type="number" min="0" step="500" value="'+(+r.hours||0)+'" onchange="oocCatRowSet(\''+ck+'\','+ri+',\'hours\',this.value)" class="num-in mono" style="width:78px;padding:3px 4px;font-size:11px;background:#0c1620;border-color:#155e75;color:#7dd3fc" title="TOTAL jam kerja semua unit tipe ini (qty × jam/unit)"></td>'+
+        '<td class="mono" style="padding:3px 4px;text-align:right;color:#fbbf24">'+f2(ooc)+'</td>'+
+        '<td class="mono" style="padding:3px 4px;text-align:right;color:#e7e5e4">'+f0(cost)+'</td>'+
+        '<td style="padding:3px 2px"><button class="btn-del" style="font-size:9px;padding:1px 5px" onclick="oocCatRowDel(\''+ck+'\','+ri+')">✕</button></td></tr>';
+    }).join('');
+    const perUnit=(+c.target>0)?tot/(+c.target):0;
+    h+='<div style="background:linear-gradient(160deg,#1a1410,#14110e);border:1px solid #3d342a;border-top:3px solid #fbbf24;border-radius:10px;padding:12px">';
+    h+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><span style="font-size:13px;font-weight:800;color:#fde68a">'+icon+' '+esc(c.label)+'</span>'+
+       '<button class="btn btn-sec" onclick="oocCatRowAdd(\''+ck+'\')" style="padding:2px 9px;font-size:11px">＋ alat</button></div>';
+    h+='<div style="display:flex;gap:10px;align-items:flex-end;margin-bottom:8px">';
+    h+='<label class="text-xs" style="color:#a8a29e">Target produksi<br><input type="number" min="0" step="10000" value="'+(+c.target||0)+'" onchange="oocCatSet(\''+ck+'\',\'target\',this.value)" class="num-in mono mt-1" style="width:120px;padding:3px 6px;font-size:12px;background:#0c1620;border-color:#155e75;color:#7dd3fc"></label>';
+    h+='<label class="text-xs" style="color:#a8a29e">Satuan<br><select onchange="oocCatSet(\''+ck+'\',\'unit\',this.value)" class="num-in mt-1" style="width:80px;padding:3px 6px;font-size:12px"><option value="bcm"'+(c.unit==='bcm'?' selected':'')+'>bcm</option><option value="ton"'+(c.unit==='ton'?' selected':'')+'>ton</option></select></label>';
+    h+='</div>';
+    h+='<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px;min-width:340px">';
+    h+='<tr style="color:#a8a29e;border-bottom:1px solid #3d342a"><th style="text-align:left;padding:3px 4px">Alat</th><th style="padding:3px 4px">Qty</th><th style="padding:3px 4px">Jam kerja</th><th style="text-align:right;padding:3px 4px">OOC $/jam</th><th style="text-align:right;padding:3px 4px">Cost (USD)</th><th></th></tr>';
+    h+=rowsH||'<tr><td colspan="6" style="padding:8px;color:#78716c;font-style:italic">— belum ada alat —</td></tr>';
+    h+='</table></div>';
+    h+='<div class="text-xs" style="color:#a8a29e;margin-top:8px;display:flex;justify-content:space-between"><span>Total cost</span><span class="mono" style="color:#e7e5e4;font-weight:700">USD '+f0(tot)+'</span></div>';
+    h+='<div style="margin-top:6px;padding:8px 10px;background:#fbbf2418;border:1px dashed #fbbf24;border-radius:8px;display:flex;justify-content:space-between;align-items:center"><span style="font-weight:800;color:#fef3c7;font-size:12px">'+esc(c.label)+' Cost</span><span class="mono" style="color:#84cc16;font-weight:800;font-size:16px">'+(perUnit>0?f2(perUnit):'—')+' USD/'+esc(c.unit)+'</span></div>';
+    h+='</div>';
+  });
+  h+='</div>';
+  h+='<div class="text-xs" style="color:#78716c;margin-top:12px">Rumus mengikuti referensi 1:1 — validasi: PC 1250 → Owning 45.55 · Operating 193.60 · OOC 239.15 $/jam; HD465 → 96.43 $/jam; OB 4.068.000 bcm → 2.02 USD/bcm. Alat baru mulai dari 0 (isi sesuai data/quote — tidak ada angka karangan). Katalog & kategori tersimpan di rc_ooc_v1 (sync tim).</div>';
+  host.innerHTML=h;
+}
 
 /* ================================================================
    ⚖️ UJI KELAYAKAN — sidang kelayakan project aktif, 4 uji:
