@@ -285,6 +285,23 @@
   body[data-theme="light"] [style*="color:#78716c"],
   body[data-theme="light"] [style*="color:#71717a"]{color:#64748B !important}
   body[data-theme="light"] [style*="color:#8ea0c4"]{color:#475569 !important}
+  /* Warna inline yang dirancang untuk latar gelap tapi belum punya padanan
+     light — di light mode jatuh ke bawah 4.5:1. Ditambahkan agar semua teks
+     tetap terbaca saat tema diganti. */
+  body[data-theme="light"] [style*="color:#f59e0b"]{color:#B45309 !important}
+  body[data-theme="light"] [style*="color:#dc2626"]{color:#B91C1C !important}
+  body[data-theme="light"] [style*="color:#7dd3fc"]{color:#0369A1 !important}
+  body[data-theme="light"] [style*="color:#60a5fa"]{color:#1D4ED8 !important}
+  body[data-theme="light"] [style*="color:#cbd5e1"]{color:#475569 !important}
+  /* … kecuali di dalam th (header slate gelap), yang tetap butuh versi terang. */
+  body[data-theme="light"] th[style*="color:#f59e0b"],
+  body[data-theme="light"] th [style*="color:#f59e0b"]{color:#FCD34D !important}
+  body[data-theme="light"] th[style*="color:#7dd3fc"],
+  body[data-theme="light"] th [style*="color:#7dd3fc"]{color:#7DD3FC !important}
+  body[data-theme="light"] th[style*="color:#60a5fa"],
+  body[data-theme="light"] th [style*="color:#60a5fa"]{color:#93C5FD !important}
+  body[data-theme="light"] th[style*="color:#cbd5e1"],
+  body[data-theme="light"] th [style*="color:#cbd5e1"]{color:#E2E8F0 !important}
   body[data-theme="light"] .text-slate-400,
   body[data-theme="light"] .text-slate-500{color:#475569 !important}
   body[data-theme="light"] .text-blue-200{color:#1E40AF !important}
@@ -346,6 +363,72 @@
   .pm-badge{padding:3px 8px;border-radius:6px;font-size:10px;font-weight:700;display:inline-block}
   .pm-badge-ok{background:rgba(132,204,22,.15);color:#84cc16}
   .pm-badge-warn{background:rgba(220,38,38,.15);color:#f87171}
+
+  /* ============================================================
+     NOTE / CALLOUT — satu komponen untuk semua pesan inline.
+     Penanda struktural: garis vertikal di kiri = "ini anotasi",
+     seragam dengan .h-section::before dan sidebar aktif.
+     ============================================================ */
+  .note{
+    display:block;position:relative;
+    padding:8px 12px;margin:0 0 12px;
+    border-left:3px solid var(--border-lit);border-radius:0 8px 8px 0;
+    background:rgba(124,147,181,.09);
+    font-size:11.5px;line-height:1.55;color:var(--muted);
+  }
+  /* Varian kaki: note di bawah tabel/panel — jarak pindah ke atas. */
+  .note--foot{margin:10px 0 0}
+  /* Varian deretan chip (mis. ringkasan impor) — tiap anak jadi item terpisah. */
+  .note--row{display:flex;gap:6px 16px;flex-wrap:wrap;align-items:center}
+  .note--row > .note-x{margin-left:auto;flex-shrink:0}
+  .note:not(.note--row) > .note-x{position:absolute;top:6px;right:8px}
+  .note b{color:#D9E3F0;font-weight:700}
+  .note--info{border-left-color:#22d3ee;background:rgba(34,211,238,.09);color:#a5f3fc}
+  .note--info b{color:#67e8f9}
+  .note--warn{border-left-color:var(--amber);background:rgba(245,184,76,.10);color:#fcd34d}
+  .note--warn b{color:#fde68a}
+  .note--err{border-left-color:#dc2626;background:rgba(220,38,38,.11);color:#fca5a5}
+  .note--err b{color:#fecaca}
+  .note--ok{border-left-color:var(--olive);background:rgba(132,204,22,.10);color:#bef264}
+  .note--ok b{color:#d9f99d}
+  body[data-theme="light"] .note{background:#F1F5F9;border-left-color:#94A3B8;color:#475569}
+  body[data-theme="light"] .note b{color:#0F172A}
+  body[data-theme="light"] .note--info{background:#ECFEFF;border-left-color:#0E7490;color:#155E75}
+  body[data-theme="light"] .note--info b{color:#0E7490}
+  body[data-theme="light"] .note--warn{background:#FFFBEB;border-left-color:#B45309;color:#92400E}
+  body[data-theme="light"] .note--warn b{color:#78350F}
+  body[data-theme="light"] .note--err{background:#FEF2F2;border-left-color:#B91C1C;color:#991B1B}
+  body[data-theme="light"] .note--err b{color:#7F1D1D}
+  body[data-theme="light"] .note--ok{background:#F0FDF4;border-left-color:#15803D;color:#166534}
+  body[data-theme="light"] .note--ok b{color:#14532D}
+
+  /* Sub-judul tab: satu baris, menjawab "tab ini buat apa" — bukan dokumentasi. */
+  .tab-intro{font-size:12px;color:var(--muted);margin:-4px 0 14px;line-height:1.5}
+  body[data-theme="light"] .tab-intro{color:#475569}
+
+  /* Detail rumus/metode yang jarang dibaca -> sembunyikan di balik disclosure. */
+  details.howto{margin:-6px 0 14px;font-size:11.5px}
+  details.howto > summary{
+    display:inline-flex;align-items:center;gap:6px;
+    color:var(--muted);font-size:11px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;
+    padding:3px 0;border-bottom:1px dotted var(--border-lit);width:fit-content;
+  }
+  details.howto > summary:hover{color:var(--amber)}
+  details.howto > summary::before{content:"B8";transition:transform .2s;display:inline-block;color:var(--amber)}
+  details.howto[open] > summary::before{transform:rotate(90deg)}
+  details.howto > div{
+    margin-top:8px;padding:10px 12px;border-left:3px solid var(--border);border-radius:0 8px 8px 0;
+    background:rgba(124,147,181,.07);color:var(--muted);line-height:1.65;
+  }
+  details.howto b{color:#D9E3F0}
+  body[data-theme="light"] details.howto > summary{color:#475569}
+  body[data-theme="light"] details.howto > div{background:#F8FAFC;border-left-color:#CBD5E1;color:#475569}
+  body[data-theme="light"] details.howto b{color:#0F172A}
+
+  /* Legenda ringkas (mis. biru=input, emas=rumus) — sejajar, tanpa kalimat. */
+  .legend{display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:11px;color:var(--muted)}
+  .legend i{font-style:normal;display:inline-flex;align-items:center;gap:5px}
+  .legend i::before{content:"";width:9px;height:9px;border-radius:2px;background:currentColor;opacity:.85}
 </style>
 </head>
 <body class="min-h-screen">
@@ -440,44 +523,46 @@
   <!-- ============ TAB: CASHFLOW ============ -->
   <div id="tab-cashflow" class="tab-panel">
     <div class="h-section">💵 Project Cashflow (Bulanan)</div>
-    <div class="text-xs mb-3" style="color:#a8a29e">Proyeksi kas bulanan M0…Mn — Revenue (produksi × Rate Rekomendasi, kas masuk sesuai termin) dikurangi Capex awal + Opex bulanan (ditarik dari data project). Menampilkan kebutuhan modal puncak & titik balik modal.</div>
+    <div class="tab-intro">Kas masuk dan keluar tiap bulan, M0 sampai akhir project.</div>
+    <details class="howto"><summary>Dasar perhitungan</summary><div>Masuk = produksi × Rate Rekomendasi, diakui sesuai termin. Keluar = Capex awal + Opex bulanan dari data project. Yang dibaca: <b>kebutuhan modal puncak</b> dan <b>titik balik modal</b>.</div></details>
     <div id="cf_body"></div>
   </div>
 
   <!-- ============ TAB: OOC CALCULATOR (Owning & Operating Cost per unit → cost per bcm/ton) ============ -->
   <div id="tab-ooc" class="tab-panel">
     <div class="h-section">🧾 OOC Calculator — Owning &amp; Operating Cost</div>
-    <div class="text-xs mb-3" style="color:#a8a29e">Perhitungan OOC per unit alat mengikuti struktur referensi (Delivered Price → Depresiasi <b>E=C/(n×D)</b> + Interest/Tax/Insurance <b>K=(F×A×J)/D</b> → Owning; Fuel/Pelumas/Filter/Repair/Ban/Upah → Operating) lalu di-rollup ke <b>Cost per bcm/ton</b> untuk kategori <b>OB · Coal · Mineral</b>. Sel input bisa diedit; sel hasil dihitung otomatis. Katalog alat tersinkron ke tim.</div>
+    <div class="tab-intro">Biaya kepemilikan dan operasi per unit alat, di-rollup jadi biaya per bcm/ton.</div>
+    <details class="howto"><summary>Struktur rumus</summary><div><b>Owning</b> = depresiasi <span class="mono">E = C/(n×D)</span> + interest/tax/insurance <span class="mono">K = (F×A×J)/D</span>. <b>Operating</b> = fuel + pelumas + filter + repair + ban + upah operator. Keduanya USD/jam, lalu dikali jam kerja fleet dan dibagi target produksi tiap kategori. Struktur mengikuti referensi OOC 1:1.</div></details>
     <div id="ooc_body"></div>
   </div>
 
   <!-- ============ TAB: GENERATOR BUDGET (target+jarak+fleet → 4 kombinasi tier) ============ -->
   <div id="tab-gen" class="tab-panel">
     <div class="h-section">🏗️ Generator Budget — OB & Coal Getting</div>
-    <div class="text-xs mb-3" style="color:#a8a29e">Masukkan <b>target produksi</b>, <b>jarak</b>, dan <b>ekspektasi fleet</b> → generator menyusun seluruh budget (fleet, alat support, manpower, facilities) dalam <b>4 kombinasi tier alat</b> (Tier 1 · Tier 2 · Mix · New+Used), masing-masing jadi project variant dalam satu folder. Semua aturan bisa diubah di panel Rules.</div>
+    <div class="tab-intro">Target produksi, jarak, dan ekspektasi fleet → 4 variant budget lengkap dalam satu folder.</div>
     <div id="gen_body"></div>
   </div>
 
   <!-- ============ TAB: UJI KELAYAKAN (scorecard 4 uji) ============ -->
   <div id="tab-feas" class="tab-panel">
     <div class="h-section">⚖️ Uji Kelayakan Budget</div>
-    <div class="text-xs mb-3" style="color:#a8a29e">Sidang kelayakan project aktif — 4 uji: <b>Rate vs Pasar</b>, <b>Profitabilitas</b> (margin·NPV·IRR), <b>Kewajaran Komposisi</b> (vs kebiasaan historis), dan <b>Modal &amp; Cashflow</b>. Setiap lampu merah menunjuk lever yang perlu disesuaikan.</div>
+    <div class="tab-intro">Empat uji untuk project aktif: rate, profitabilitas, komposisi biaya, modal.</div>
     <div id="feas_body"></div>
   </div>
 
   <!-- ============ TAB: ANALISIS NPV/IRR (per stream) ============ -->
   <div id="tab-finx" class="tab-panel">
     <div class="h-section">💹 Analisis Finansial — NPV · IRR · Pajak (per Stream)</div>
-    <div class="text-xs mb-3" style="color:#a8a29e">Cashflow per stream <b>terpisah</b> (OB & Coal Getting), lengkap dengan <b>BPJS</b>, <b>PPh Badan</b> (atas laba operasi tahunan), lalu <b>NPV</b>, <b>IRR</b>, dan <b>payback terdiskonto</b>. Termin & tenor cicilan mengikuti tab Cashflow.</div>
+    <div class="tab-intro">NPV, IRR, dan payback terdiskonto — dihitung terpisah per stream.</div>
+    <details class="howto"><summary>Yang ikut dihitung</summary><div>Cashflow OB dan Coal Getting dipisah, sudah termasuk <b>BPJS</b> dan <b>PPh Badan</b> atas laba operasi tahunan. Termin dan tenor cicilan mengikuti tab Cashflow.</div></details>
     <div id="finx_body"></div>
   </div>
 
   <!-- ============ TAB: CALCULATOR ============ -->
   <div id="tab-calc" class="tab-panel">
 
-  <div class="mb-4 p-3 rounded-lg border border-blue-500/30 bg-blue-500/5 text-xs text-blue-200 flex items-center justify-between">
-    <span>💡 Atur semua input di tab ini. Lihat KPI, chart cost, dan rate summary di tab <b>📈 Results &amp; Analytics</b>.</span>
-    <button class="btn btn-add" onclick="document.querySelector('[data-tab=results]').click()">Lihat Results →</button>
+  <div class="flex justify-end mb-4">
+    <button class="btn btn-add" onclick="document.querySelector('[data-tab=results]').click()" title="Buka Results &amp; Analytics — KPI, chart cost, rate summary">Lihat Results →</button>
   </div>
 
   <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -724,7 +809,7 @@
             </tr>
           </tfoot>
         </table>
-        <div class="text-xs mt-2" style="color:#a8a29e">Nilai per unit dikonversi dari USD ke IDR menggunakan kurs di tab Maintenance Cost. Sudah termasuk Scheduled + Unscheduled + Downtime opp-loss + Battery degradation (EV).</div>
+        <div class="note note--foot">Nilai per unit memakai kurs tab Maintenance Cost. Sudah termasuk scheduled, unscheduled, downtime opp-loss, dan degradasi baterai EV.</div>
       </details>
 
       <details class="card p-5" open>
@@ -900,7 +985,7 @@
         <div class="h-section">📊 Breakdown per Bucket</div>
         <div style="position:relative;height:280px"><canvas id="chartCOOBreak"></canvas></div>
         <div class="text-xs text-slate-400 mt-2">
-          <b>CAPEX</b>: Equipment purchase (unit × Adj PPN) <i>+ Support CAPEX items</i> (mis. Charging Pile — qty × cost, sekali bayar). <b>OPEX</b>: Maintenance + manpower produktif langsung (Operator/Driver/Mekanik/Helper/Tyre/Welder). <b>Overhead</b>: Support facilities monthly-recurring + manpower tidak langsung (Management, Spv, Foreman, Admin, HRGA, Safety, Security, Surveyor, dll).
+          <b>CAPEX</b> equipment (unit × Adj PPN) + support CAPEX sekali bayar · <b>OPEX</b> maintenance + manpower produktif langsung · <b>Overhead</b> support facilities bulanan + manpower tidak langsung.
         </div>
       </div>
     </div>
@@ -919,7 +1004,7 @@
       <div class="flex justify-between items-center mb-4">
         <div>
           <div class="h-section" style="margin-bottom:4px">Support Facilities Database</div>
-          <p class="text-xs text-slate-400">Kelola daftar support facilities. Item yang ditambahkan di sini akan tersedia sebagai pilihan (autocomplete) di tabel Calculator &gt; Support Facilities. Data tersimpan di browser (localStorage).</p>
+          <p class="text-xs text-slate-400">Item di sini muncul sebagai pilihan di Calculator › Support Facilities.</p>
         </div>
         <div class="flex gap-2">
           <button class="btn btn-add" onclick="addSupportDB()">+ Add Item</button>
@@ -943,7 +1028,7 @@
       <div class="flex justify-between items-center mb-4">
         <div>
           <div class="h-section" style="margin-bottom:4px">Manpower Database</div>
-          <p class="text-xs text-slate-400">Kelola daftar posisi &amp; base salary. Item yang ditambahkan tersedia sebagai pilihan di tabel Calculator &gt; Man Power.</p>
+          <p class="text-xs text-slate-400">Item di sini muncul sebagai pilihan di Calculator › Man Power.</p>
         </div>
         <div class="flex gap-2">
           <button class="btn btn-add" onclick="addMPDB()">+ Add Position</button>
@@ -968,23 +1053,23 @@
         <span style="font-size:28px">⛏️</span>
         <div>
           <div class="h-section" style="margin-bottom:2px">Mining Plant Manpower Calculator</div>
-          <p class="text-xs" style="color:#d6a15c">Kalkulasi kebutuhan mekanik, supervisor, dan planner &amp; parts berdasarkan target Physical Availability (PA).</p>
+          <p class="text-xs" style="color:#d6a15c">Kebutuhan mekanik, supervisor, dan planner dari target PA.</p>
         </div>
       </div>
       <!-- Sub-tabs -->
       <div class="flex gap-2 mt-4 flex-wrap">
-        <button class="tab-btn pm-subtab active" data-pmtab="info">📖 Teori &amp; Konsep</button>
-        <button class="tab-btn pm-subtab" data-pmtab="calc">🧮 Kalkulator</button>
+        <button class="tab-btn pm-subtab active" data-pmtab="calc">🧮 Kalkulator</button>
+        <button class="tab-btn pm-subtab" data-pmtab="info">📖 Teori &amp; Konsep</button>
         <button class="tab-btn pm-subtab" data-pmtab="results">📊 Hasil &amp; Analisis</button>
       </div>
     </div>
 
     <!-- Sub: Teori & Konsep -->
-    <div id="pm-sub-info" class="pm-sub">
+    <div id="pm-sub-info" class="pm-sub" style="display:none">
       <div class="card p-5 mb-5">
         <div class="h-section">🔧 Apa itu Physical Availability (PA)?</div>
         <div style="color:#d6d0c4;font-size:13.5px;line-height:1.8">
-          <p class="mb-3"><b style="color:#f59e0b">Physical Availability (PA)</b> adalah persentase waktu dimana unit/alat berat secara fisik tersedia untuk beroperasi. PA merupakan KPI utama di departemen plant tambang.</p>
+          <p class="mb-3"><b style="color:#f59e0b">Physical Availability (PA)</b> = persentase waktu alat berat siap beroperasi. KPI utama departemen plant.</p>
           <div style="background:#14110e;border:1px solid #78350f;border-radius:10px;padding:14px;text-align:center">
             <div class="text-xs" style="color:#d6a15c">FORMULA</div>
             <div class="mono mt-1" style="font-size:18px;color:#fbbf24;font-weight:700">PA = MTBF / (MTBF + MTTR) × 100%</div>
@@ -1000,7 +1085,7 @@
       <div class="card p-5 mb-5">
         <div class="h-section">👷 Hubungan PA dengan Kebutuhan Mekanik</div>
         <div style="color:#d6d0c4;font-size:13.5px;line-height:1.8">
-          <p class="mb-3">Semakin tinggi target PA, semakin banyak mekanik yang dibutuhkan untuk menekan MTTR. Hubungannya bersifat <b style="color:#f59e0b">eksponensial</b> — menaikkan PA dari 85% → 90% jauh lebih mudah daripada 90% → 95%.</p>
+          <p class="mb-3">Makin tinggi target PA, makin banyak mekanik untuk menekan MTTR — dan hubungannya <b style="color:#f59e0b">eksponensial</b>: 85% → 90% jauh lebih murah daripada 90% → 95%.</p>
           <div style="background:linear-gradient(135deg,#1a140e,#14110e);border:1px solid #78350f;border-radius:12px;padding:18px">
             <div class="text-xs mb-4" style="color:#fbbf24;letter-spacing:1px;font-weight:700">⚙️ 5 FAKTOR UTAMA KEBUTUHAN MANPOWER PLANT</div>
             <div style="display:grid;gap:12px">
@@ -1009,7 +1094,7 @@
                 <div style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#f59e0b,#b45309);color:#14110e;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;flex-shrink:0;box-shadow:0 2px 8px rgba(245,158,11,.4)">1</div>
                 <div style="flex:1">
                   <div style="color:#fef3c7;font-weight:700;font-size:14px;margin-bottom:4px">🚜 Jumlah &amp; Jenis Alat Berat</div>
-                  <div style="color:#e7e0d3;font-size:13px;line-height:1.65">Makin banyak unit dan makin beragam jenisnya — excavator, dump truck, dozer, grader — makin besar kebutuhan mekanik. Setiap alat punya prosedur dan frekuensi perawatan yang berbeda.</div>
+                  <div style="color:#e7e0d3;font-size:13px;line-height:1.65">Tiap jenis alat punya prosedur dan frekuensi perawatan sendiri, jadi fleet yang lebih besar dan lebih beragam butuh lebih banyak mekanik.</div>
                 </div>
               </div>
 
@@ -1017,7 +1102,7 @@
                 <div style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#f59e0b,#b45309);color:#14110e;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;flex-shrink:0;box-shadow:0 2px 8px rgba(245,158,11,.4)">2</div>
                 <div style="flex:1">
                   <div style="color:#fef3c7;font-weight:700;font-size:14px;margin-bottom:4px">🎯 Target Physical Availability (PA)</div>
-                  <div style="color:#e7e0d3;font-size:13px;line-height:1.65">PA adalah persentase waktu alat siap beroperasi. Target PA tinggi (mis. <b style="color:#fbbf24">90%</b>) menuntut MTTR rendah — perbaikan harus cepat, dan itu hanya bisa dicapai dengan menambah jumlah mekanik per unit.</div>
+                  <div style="color:#e7e0d3;font-size:13px;line-height:1.65">Target PA tinggi (mis. <b style="color:#fbbf24">90%</b>) menuntut MTTR rendah — perbaikan harus cepat, dan itu berarti lebih banyak mekanik per unit.</div>
                 </div>
               </div>
 
@@ -1025,7 +1110,7 @@
                 <div style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#f59e0b,#b45309);color:#14110e;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;flex-shrink:0;box-shadow:0 2px 8px rgba(245,158,11,.4)">3</div>
                 <div style="flex:1">
                   <div style="color:#fef3c7;font-weight:700;font-size:14px;margin-bottom:4px">🕐 Pola Shift Kerja</div>
-                  <div style="color:#e7e0d3;font-size:13px;line-height:1.65">Tambang beroperasi 24 jam, jadi mekanik dibagi per shift. Pola <b style="color:#fbbf24">2 shift × 12 jam</b> atau <b style="color:#fbbf24">3 shift × 8 jam</b> menentukan berapa tim yang harus disiapkan — tiap shift butuh jumlah mekanik yang cukup untuk meng-cover seluruh fleet.</div>
+                  <div style="color:#e7e0d3;font-size:13px;line-height:1.65">Tambang jalan 24 jam. Pola <b style="color:#fbbf24">2×12 jam</b> atau <b style="color:#fbbf24">3×8 jam</b> menentukan berapa tim yang harus disiapkan — tiap shift harus cukup untuk seluruh fleet.</div>
                 </div>
               </div>
 
@@ -1033,7 +1118,7 @@
                 <div style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#f59e0b,#b45309);color:#14110e;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;flex-shrink:0;box-shadow:0 2px 8px rgba(245,158,11,.4)">4</div>
                 <div style="flex:1">
                   <div style="color:#fef3c7;font-weight:700;font-size:14px;margin-bottom:4px">🏖️ Cadangan Cuti, Sakit &amp; Training</div>
-                  <div style="color:#e7e0d3;font-size:13px;line-height:1.65">Tidak semua mekanik hadir setiap hari. Pengganda <b style="color:#fbbf24">1,2–1,3×</b> ditambahkan ke kebutuhan dasar agar shift tetap terisi penuh ketika ada yang cuti, sakit, atau ikut pelatihan.</div>
+                  <div style="color:#e7e0d3;font-size:13px;line-height:1.65">Pengganda <b style="color:#fbbf24">1,2–1,3×</b> menutup mekanik yang cuti, sakit, atau ikut pelatihan supaya shift tetap terisi.</div>
                 </div>
               </div>
 
@@ -1041,7 +1126,7 @@
                 <div style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#f59e0b,#b45309);color:#14110e;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;flex-shrink:0;box-shadow:0 2px 8px rgba(245,158,11,.4)">5</div>
                 <div style="flex:1">
                   <div style="color:#fef3c7;font-weight:700;font-size:14px;margin-bottom:4px">👥 Rasio Supervisor : Mekanik</div>
-                  <div style="color:#e7e0d3;font-size:13px;line-height:1.65">Standar industri: <b style="color:#fbbf24">1 supervisor untuk 5–8 mekanik</b>. Area kompleks / risiko tinggi (mis. workshop HD) pakai rasio lebih ketat (<b style="color:#fbbf24">1:5</b>), area standar bisa <b style="color:#fbbf24">1:8</b>.</div>
+                  <div style="color:#e7e0d3;font-size:13px;line-height:1.65">Standar industri <b style="color:#fbbf24">1 : 5–8</b>. Area berisiko tinggi (mis. workshop HD) pakai <b style="color:#fbbf24">1:5</b>, area standar <b style="color:#fbbf24">1:8</b>.</div>
                 </div>
               </div>
 
@@ -1068,12 +1153,11 @@
             </div>
           </div>
         </div>
-        <p class="text-xs mt-3" style="color:#a8a29e">Kalkulator ini menghitung kebutuhan mekanik, supervisor, dan planner &amp; parts. Gunakan sub-tab <b>Kalkulator</b> untuk input data fleet Anda.</p>
       </div>
     </div>
 
     <!-- Sub: Kalkulator -->
-    <div id="pm-sub-calc" class="pm-sub" style="display:none">
+    <div id="pm-sub-calc" class="pm-sub">
       <div class="card p-5 mb-5">
         <div class="h-section">⚙️ Parameter Operasional</div>
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1125,7 +1209,7 @@
       </div>
       <div class="card p-5 mb-5">
         <div class="h-section">🎯 Sensitivitas: PA vs Jumlah Mekanik</div>
-        <div class="text-xs mb-3" style="color:#a8a29e">Perbandingan kebutuhan mekanik pada berbagai level PA target:</div>
+        <div class="text-xs mb-3" style="color:#a8a29e">Kebutuhan mekanik pada berbagai level PA target</div>
         <div id="pm_chartSensitivity" class="pm-bar-chart"></div>
       </div>
       <button class="btn btn-sec" style="width:100%" onclick="pmSwitch('calc')">← Kembali ke Kalkulator</button>
@@ -1136,7 +1220,7 @@
   <div id="tab-db-eq" class="tab-panel">
     <div class="card p-5">
       <div class="h-section">Equipment Database (Handbook Specifications)</div>
-      <p class="text-xs text-slate-400 mb-4">Database spesifikasi unit dari handbook produsen — digunakan untuk auto-fill parameter Loader &amp; Hauler. Include produsen Jepang, Eropa, Amerika, Korea, dan China.</p>
+      <p class="text-xs text-slate-400 mb-4">Spesifikasi dari handbook produsen — sumber auto-fill parameter Loader &amp; Hauler.</p>
       <div id="eq_db_view" class="space-y-6"></div>
     </div>
   </div>
@@ -1151,7 +1235,7 @@
         <span style="font-size:28px">🧮</span>
         <div style="flex:1">
           <h2 class="mining-title" style="font-size:22px;margin:0">TCO Structure <span style="font-size:14px;opacity:.8">By McKinsey</span></h2>
-          <p class="text-xs mt-1" style="color:#d6a15c">Framework dekomposisi biaya kontraktor tambang ala McKinsey consulting: <b>CAPEX</b> (alat &amp; infra) · <b>OPEX</b> (direct production + ownership) · <b>Overhead</b> (site + HO). Tiap komponen diklasifikasi <b style="color:#84cc16">Fixed</b>, <b style="color:#f59e0b">Variable</b>, atau <b style="color:#c2410c">Semi-variable</b>.</p>
+          <p class="text-xs mt-1" style="color:#d6a15c"><b>CAPEX</b> (alat &amp; infra) · <b>OPEX</b> (direct + ownership) · <b>Overhead</b> (site + HO). Tiap komponen ditandai <b style="color:#84cc16">Fixed</b>, <b style="color:#f59e0b">Variable</b>, atau <b style="color:#c2410c">Semi-variable</b>.</p>
         </div>
       </div>
     </div>
@@ -1622,7 +1706,7 @@
         <span style="font-size:28px">🔋</span>
         <div style="flex:1">
           <h2 class="mining-title" style="font-size:20px;margin:0">EV Hauling Simulator</h2>
-          <p class="text-xs mt-1" style="color:#d6a15c">Discrete-event simulation untuk EV hauling fleet. Pilih model bawah untuk <b style="color:#fbbf24">Swap Battery</b> (truck ganti baterai, baterai lama di-charge di pool) atau <b style="color:#fbbf24">Charge-in-Place</b> (truck tunggu di charger sampai penuh).</p>
+          <p class="text-xs mt-1" style="color:#d6a15c">Simulasi discrete-event untuk fleet EV. Pilih model: <b style="color:#fbbf24">Swap Battery</b> (baterai diganti, yang lama di-charge di pool) atau <b style="color:#fbbf24">Charge-in-Place</b> (truck menunggu sampai penuh).</p>
         </div>
         <a id="ev_sim_fullscreen" href="ev-hauling-simulator-v2.1-swap-charge.html" target="_blank" class="btn btn-sec" title="Buka di tab browser baru (fullscreen)">↗ Buka Fullscreen</a>
       </div>
@@ -1668,7 +1752,7 @@
         <span style="font-size:28px">💰</span>
         <div style="flex:1">
           <h2 class="mining-title" style="font-size:22px;margin:0">Maintenance Cost Framework</h2>
-          <p class="text-xs mt-1" style="color:#d6a15c">Referensi unit dari <b>Calculator → Equipment Cost</b>. 4 komponen biaya: Direct · Labor · Downtime · Support. Scheduled vs Unscheduled KPI dengan MTBF/MTTR/PA.</p>
+          <p class="text-xs mt-1" style="color:#d6a15c">Unit diambil dari <b>Calculator → Equipment Cost</b>. Empat komponen biaya: direct, labor, downtime, support.</p>
         </div>
         <details class="text-xs" style="color:#d6a15c">
           <summary style="cursor:pointer;padding:6px 10px;background:#14110e;border:1px solid #78350f;border-radius:6px;color:#fbbf24;font-weight:700;user-select:none;list-style:none">📚 Framework Guide</summary>
@@ -1704,6 +1788,9 @@
         <b style="color:#fbbf24">Production Rate &amp; Margin</b> per equipment diambil langsung dari Calculator (Loader/Hauler productivity × Rate Recommendation).
       </div>
     </div>
+
+    <!-- Pemberitahuan migrasi perbaikan ukuran alat (tampil sekali setelah recompute) -->
+    <div id="m_migrate_note" style="display:none;margin-bottom:14px;padding:10px 14px;background:#052e16;border:1px solid #16a34a;border-radius:8px;font-size:12px;color:#bbf7d0"></div>
 
     <!-- Summary KPI Row -->
     <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-5">
@@ -1758,7 +1845,7 @@
     <div class="flex flex-wrap items-center justify-between mb-4 gap-3">
       <div>
         <h2 class="text-xl font-bold" style="color:#fbbf24">🏢 Struktur Organisasi</h2>
-        <p class="text-xs mt-1" style="color:#a8a29e">Bagan otomatis dari data <b>Calculator → Man Power</b>. Headcount &amp; payroll/project per departemen. Edit di tab Calculator → bagan ikut berubah.</p>
+        <p class="text-xs mt-1" style="color:#a8a29e">Bagan mengikuti data <b>Calculator → Man Power</b> — headcount dan payroll per departemen. Edit di Calculator, bagan ikut berubah.</p>
       </div>
       <div id="org_summary" class="flex gap-2 flex-wrap"></div>
     </div>
@@ -1772,7 +1859,7 @@
     <div class="flex flex-wrap items-center justify-between mb-4 gap-3">
       <div>
         <h2 class="text-xl font-bold" style="color:#fbbf24">🏭 Calculator Produksi — Productivity &amp; Produksi</h2>
-        <p class="text-xs mt-1" style="color:#a8a29e">Berbasis <b>PTY_Calc</b>. Pilih kategori (satuan otomatis menyesuaikan). Ubah input biru → semua hasil dihitung ulang.</p>
+        <p class="text-xs mt-1" style="color:#a8a29e">Pilih kategori — satuan menyesuaikan sendiri. Ubah input biru, semua hasil dihitung ulang.</p>
       </div>
       <label class="text-xs" style="color:#fbbf24;font-weight:700">Kategori
         <select id="pc_category" class="num-in mt-1" style="font-weight:700" onchange="pcSwitchCategory()">
@@ -3830,7 +3917,7 @@ document.querySelectorAll('.tab-btn[data-tab]').forEach(b=>{
     if(b.dataset.tab==='finx'){ cfxRender(); }
     if(b.dataset.tab==='feas'){ feasRender(); }
     if(b.dataset.tab==='gen'){ genRender(); }
-    if(b.dataset.tab==='ooc'){ oocRender(); }
+    if(b.dataset.tab==='ooc'){ try{ oocSyncAuto(); }catch(e){} oocRender(); }
     /* Lazy-load the EV simulator iframe on first visit — avoids loading the
        React/Babel runtime (~200KB) for users who never open this tab. */
     if(b.dataset.tab==='ev-sim'){
@@ -4227,6 +4314,8 @@ function cfxSet(k,v){ cfxState[k]=(v===''||v==null)?0:(+v||0); if(typeof markDir
    Seed awal = 2 alat contoh referensi (PC 1250 & HD465) utk validasi angka.
    ================================================================ */
 const LS_OOC='rc_ooc_v1';
+/* Urutan kategori OOC — dipakai state/migrasi, render, hapus alat, & export. */
+const OOC_CATS=['ob','coal','coal_haul','mineral'];
 /* Seed dari referensi (BUKAN angka karangan — persis kolom contoh). */
 const OOC_SEED={
   machines:[
@@ -4249,13 +4338,15 @@ const OOC_SEED={
     ob:{ label:'OB (Overburden)', unit:'bcm', target:4068000, rows:[
       {mid:'m_pc1250', qty:3, hours:15000},{mid:'m_hd465', qty:12, hours:48000}] },
     coal:{ label:'Coal Getting', unit:'ton', target:0, rows:[] },
+    coal_haul:{ label:'Coal Hauling', unit:'ton', target:0, rows:[] },
     mineral:{ label:'Mineral', unit:'ton', target:0, rows:[] }
   }
 };
 function oocState(){
   let s=null; try{ s=JSON.parse(localStorage.getItem(LS_OOC)||'null'); }catch(e){ s=null; }
   if(!s||!Array.isArray(s.machines)||!s.cats) s=JSON.parse(JSON.stringify(OOC_SEED));
-  ['ob','coal','mineral'].forEach(k=>{ if(!s.cats[k]) s.cats[k]=JSON.parse(JSON.stringify(OOC_SEED.cats[k])); if(!Array.isArray(s.cats[k].rows)) s.cats[k].rows=[]; });
+  /* State lama (sebelum ada Coal Hauling) otomatis dapat kategori baru — tanpa migrasi manual. */
+  OOC_CATS.forEach(k=>{ if(!s.cats[k]) s.cats[k]=JSON.parse(JSON.stringify(OOC_SEED.cats[k])); if(!Array.isArray(s.cats[k].rows)) s.cats[k].rows=[]; });
   return s;
 }
 function oocSave(s){ try{ localStorage.setItem(LS_OOC, JSON.stringify(s)); }catch(e){} }
@@ -4283,6 +4374,13 @@ function oocCalcMachine(m){
   return {delivered,tire,A,B,C,n,D,E,r,F,J,K,L,fuel,lube,lubeTot,
     repairHr:v('repairHr'), tiresHr:v('tiresHr'), wage:v('wage'), oper, total};
 }
+/* Input alat baru SENGAJA 0 semua — angka harus diisi user/referensi, tidak dikarang. */
+function oocBlankInp(){ return {
+  delivered:0,tireF:0,tireR:0,salvagePct:0,n:5,annD:0,intPct:0,taxPct:0,insPct:0,
+  fuelCons:0,fuelCost:0,crankCons:0,crankCost:0,transCons:0,transCost:0,finalCons:0,finalCost:0,
+  hydCons:0,hydCost:0,greaseCons:0,greaseCost:0,filterPct:0,filterCost:0,repairHr:0,tiresHr:0,wage:0 }; }
+/* Alat dianggap "belum diisi" selama Delivered Price masih 0 → ditandai ⚠ di UI. */
+function oocIsBlank(m){ return !((+((m&&m.inp)||{}).delivered)>0); }
 let _oocSel=0;   /* index alat terpilih di editor (view-state lokal) */
 function oocFindM(s,mid){ return s.machines.find(x=>x.id===mid); }
 /* ---- setters (semua simpan + rerender; markDirty utk indikator save) ---- */
@@ -4294,17 +4392,13 @@ function oocAddMachine(){
   const tipe=(prompt('Tipe alat (mis. Excavator / Dump Truck / Dozer / Grader):','Excavator')||'').trim();
   const cls=(prompt('Class alat (mis. 90 ton / 50 ton):','')||'').trim();
   const s=oocState();
-  /* Input baru SENGAJA 0 semua — angka harus diisi user/referensi, tidak dikarang. */
-  s.machines.push({id:'m_'+Date.now().toString(36), name, tipe, cls, inp:{
-    delivered:0,tireF:0,tireR:0,salvagePct:0,n:5,annD:0,intPct:0,taxPct:0,insPct:0,
-    fuelCons:0,fuelCost:0,crankCons:0,crankCost:0,transCons:0,transCost:0,finalCons:0,finalCost:0,
-    hydCons:0,hydCost:0,greaseCons:0,greaseCost:0,filterPct:0,filterCost:0,repairHr:0,tiresHr:0,wage:0 }});
+  s.machines.push({id:'m_'+Date.now().toString(36), name, tipe, cls, inp:oocBlankInp()});
   oocSave(s); if(typeof markDirty==='function')markDirty(); _oocSel=s.machines.length-1; oocRender();
 }
 function oocDelMachine(mi){
   const s=oocState(); const m=s.machines[mi]; if(!m) return;
   if(!confirm('Hapus alat "'+m.name+'" dari katalog OOC? Baris kategori yang memakainya ikut dihapus.')) return;
-  ['ob','coal','mineral'].forEach(k=>{ s.cats[k].rows=s.cats[k].rows.filter(r=>r.mid!==m.id); });
+  OOC_CATS.forEach(k=>{ s.cats[k].rows=s.cats[k].rows.filter(r=>r.mid!==m.id); });
   s.machines.splice(mi,1); oocSave(s); if(typeof markDirty==='function')markDirty();
   _oocSel=Math.max(0,Math.min(_oocSel,s.machines.length-1)); oocRender();
 }
@@ -4312,6 +4406,252 @@ function oocCatSet(ck,k,val){ const s=oocState(); if(!s.cats[ck])return; s.cats[
 function oocCatRowSet(ck,ri,k,val){ const s=oocState(); const r=(s.cats[ck]||{}).rows[ri]; if(!r)return; r[k]=(k==='mid')?String(val):((val===''?0:+val||0)); oocSave(s); if(typeof markDirty==='function')markDirty(); oocRender(); }
 function oocCatRowAdd(ck){ const s=oocState(); if(!s.machines.length){ alert('Tambah alat dulu di katalog.'); return; } s.cats[ck].rows.push({mid:s.machines[0].id, qty:1, hours:0}); oocSave(s); if(typeof markDirty==='function')markDirty(); oocRender(); }
 function oocCatRowDel(ck,ri){ const s=oocState(); s.cats[ck].rows.splice(ri,1); oocSave(s); if(typeof markDirty==='function')markDirty(); oocRender(); }
+/* ================================================================
+   IMPOR ALAT DARI TAB CALCULATOR
+   Baca equip[] project aktif -> kelompokkan per tag stream
+   (ob -> OB · coal_get -> Coal Getting · coal_haul -> Coal Hauling) ->
+   ganti baris alat di 3 kategori itu. Kategori Mineral tidak disentuh.
+   Hanya alat produksi (Exc/Loader/Dozer/Grader/Vibro/DT). Baris Shared /
+   Rental / HRM / Tidak Dibebankan / Vessel / LV / support dilewati.
+   Jam kerja diisi 0 dan alat baru mulai dari input 0 — tidak ada angka karangan.
+   Arah data SATU JALAN: calculator -> OOC (equip[] tidak pernah diubah).
+   ================================================================ */
+const OOC_STREAM_MAP={ ob:'ob', coal_get:'coal', coal_haul:'coal_haul' };
+/* Field OOC yang DITURUNKAN dari calculator (ditimpa tiap impor untuk alat
+   ber-sumber Auto). Sisanya — salvage, pajak, fuel, ban — tetap manual karena
+   calculator tidak punya padanannya. */
+const OOC_AUTO_FIELDS=['delivered','n','annD','intPct','insPct','wage','repairHr','filterPct','filterCost'];
+/* Komponen Operating yang WAJIB diisi manual (tidak ada sumber di calculator). */
+const OOC_MANUAL_FIELDS=[['fuelCons','Fuel (L/jam)'],['fuelCost','Harga solar (USD/L)'],['tiresHr','Ban / Undercarriage (USD/jam)']];
+function oocIsAuto(m){ return !!(m && m.src==='calc'); }
+/* Parameter global calculator yang dipakai semua alat. */
+function oocCalcCtx(){
+  const gv=id=>{ const el=$(id); return el?(+el.value||0):0; };
+  const usd=gv('usd')||16500;
+  /* Jam operasi/tahun: HOURS/YEAR tab Maintenance — penyebut yang sama dipakai
+     maintCompute() untuk menurunkan repair USD/jam, jadi kedua sisi sebanding. */
+  const hoursYear=gv('m_hoursYear') || (gv('hrs')*gv('pa')*gv('ua')) || 5000;
+  return { usd, hoursYear, life:gv('rental_life')||5, intPct:gv('rental_fin'), insPct:gv('rental_ins'),
+           wage:oocOperatorWageUSD(usd) };
+}
+/* Upah operator USD/jam = gaji bulanan Operator ÷ 200 jam/bln ÷ kurs.
+   200 jam/bln = 25 hari × 8 jam, konvensi yang sama dengan maintDeriveLaborRate(). */
+function oocOperatorWageUSD(usd){
+  let sal=0;
+  try{ const r=(manpower||[]).find(m=>/operator/i.test(m.pos||'')); if(r) sal=+r.sal||0; }catch(e){}
+  return (sal>0 && usd>0) ? (sal/200)/usd : 0;
+}
+/* Maintenance USD/jam per unit dari maintCompute(). Dipisah sesuai baris OOC:
+     periodic = parts + oli terjadwal   -> baris "Filter & periodic maint"
+     repair   = unscheduled + upah mekanik terjadwal (+ baterai EV) -> baris "Repair" */
+function oocMaintPerHour(mres, e, hoursYear, usdCalc){
+  if(!mres || !(hoursYear>0)) return null;
+  const row=mres.rows.find(r=>r.e===e);
+  if(!row) return null;
+  /* OOC SELALU memakai kurs tab Calculator. Tab Maintenance punya field kurs
+     sendiri (m_usd) yang dipakai HANYA untuk mengubah gaji mekanik (IDR) jadi
+     laborRate USD/jam — jadi schedLabor ikut kurs itu, sedangkan parts/oli/
+     repair sudah USD murni dan tidak terpengaruh kurs sama sekali.
+     Karena labor ∝ 1/kurs, konversi ke kurs Calculator = × (m_usd / usd).
+     Kalau kedua kurs sama, faktornya 1 dan tidak ada yang berubah. */
+  const usdMaint=+((mres.params||{}).usd)||0;
+  const k=(usdCalc>0 && usdMaint>0) ? (usdMaint/usdCalc) : 1;
+  const labor=(+row.schedLabor_perUnit||0)*k;
+  return {
+    periodic:(+row.schedPartsOil_perUnit||0)/hoursYear,
+    repair:((+row.unschedDirect_perUnit||0)+labor+(+row.battery_perUnit||0))/hoursYear
+  };
+}
+/* Tulis nilai turunan ke satu alat katalog. Field manual (fuel/ban/salvage/pajak)
+   TIDAK disentuh — sekali diisi, tetap dipakai di impor-impor berikutnya. */
+function oocApplyCalc(m, e, ctx, mh){
+  const inp=m.inp||(m.inp={});
+  const pr=oocResolvePrice(e);
+  inp.delivered = ctx.usd>0 ? pr.idr/ctx.usd : 0;
+  if(pr.src) m.psrc=pr.src; else delete m.psrc;
+  inp.n         = ctx.life;
+  inp.annD      = ctx.hoursYear;
+  inp.intPct    = ctx.intPct;
+  inp.insPct    = ctx.insPct;
+  inp.wage      = ctx.wage;
+  if(mh){
+    inp.repairHr  = mh.repair;
+    /* Agregat parts+oli ditaruh di baris periodic (100% × USD/jam); baris pelumas
+       per-fluida dinolkan — calculator tidak punya rinciannya, dan membiarkannya
+       terisi akan dobel hitung dengan agregat ini. */
+    inp.filterPct = 100;
+    inp.filterCost= mh.periodic;
+    inp.crankCons=0; inp.transCons=0; inp.finalCons=0; inp.hydCons=0; inp.greaseCons=0;
+  }
+  m.src='calc';
+}
+/* Alat auto yang komponen manualnya masih 0 -> total OOC belum lengkap. */
+function oocMissingManual(m){
+  if(!oocIsAuto(m)) return [];
+  const inp=m.inp||{};
+  const miss=[];
+  if(!((+inp.fuelCons||0)*(+inp.fuelCost||0)>0)) miss.push('fuel');
+  if(!((+inp.tiresHr||0)>0)) miss.push('ban');
+  return miss;
+}
+/* Ganti sumber data satu alat: Auto (ikut calculator) <-> Manual (angka dikunci). */
+function oocSetSrc(mi, mode){
+  const s=oocState(); const m=s.machines[mi]; if(!m) return;
+  if(mode!=='calc'){ delete m.src; oocSave(s); if(typeof markDirty==='function')markDirty(); oocRender(); return; }
+  if(typeof equip==='undefined' || !Array.isArray(equip)){ alert('Data Equipment di tab Calculator belum siap.'); return; }
+  const e=equip.find(x=>(+x.qty||0)>0 && oocMatchName(oocNameOfEquip(x), m.name));
+  if(!e){ alert('Alat "'+m.name+'" tidak ditemukan di tabel Equipment tab Calculator.\n\nNama harus sama persis ("merk model"), dan qty > 0.'); return; }
+  let mres=null; try{ mres=(typeof maintCompute==='function')?maintCompute():null; }catch(err){ mres=null; }
+  const ctx=oocCalcCtx();
+  oocApplyCalc(m, e, ctx, oocMaintPerHour(mres, e, ctx.hoursYear, ctx.usd));
+  oocSave(s); if(typeof markDirty==='function')markDirty(); oocRender();
+}
+const OOC_IMP_LABEL={ ob:'OB', coal:'Coal Getting', coal_haul:'Coal Hauling' };
+let _oocImp=null;   /* ringkasan impor terakhir (view-state lokal, tidak disimpan) */
+function oocClearImp(){ _oocImp=null; oocRender(); }
+/* Nama alat OOC dari baris equipment: "merk model" (mis. "Komatsu HD465"). */
+function oocNameOfEquip(e){ return [e.merk,e.model].filter(Boolean).join(' ').trim() || String(e.cat||'Alat'); }
+/* Class alat = field `class` di katalog equipment (mis. "50 ton", "5 ton" bucket).
+   JANGAN pungut angka dari nama model — "DL420-7" bukan 420 ton. */
+/* Harga alat untuk Delivered Price. Prioritas:
+     1. Quote vendor di UNIT_PRICE_DB (harga resmi, ada nomor & masa berlaku)
+     2. Unit Price di baris Equipment tab Calculator
+   Mengembalikan { idr, src } — src null kalau jatuh ke harga baris. */
+function oocResolvePrice(e){
+  const rowIDR=+e.price||0;
+  try{
+    if(typeof resolveUnitPrice==='function'){
+      const q=resolveUnitPrice(e.cat, e.merk, e.model);
+      if(q && (+q.priceIDR||0)>0){
+        return { idr:+q.priceIDR, src:{
+          label:[q.source,q.quoteNum].filter(Boolean).join(' '),
+          date:q.quoteDate||'', exp:q.expiresDate||'' } };
+      }
+    }
+  }catch(err){}
+  return { idr:rowIDR, src:null };
+}
+/* Quote lewat masa berlaku? Dihitung saat render supaya ikut tanggal hari ini. */
+function oocQuoteExpired(psrc){
+  if(!psrc || !psrc.exp) return false;
+  const t=Date.parse(psrc.exp);
+  return isFinite(t) && t < Date.now();
+}
+function oocClassOfEquip(e){
+  try{
+    const c=EQ_CATALOG[e.cat]; if(!c) return '';
+    const row=((c.db||c.models)[e.merk]||[]).find(x=>x.model===e.model);
+    return (row && row.class) ? String(row.class) : '';
+  }catch(err){ return ''; }
+}
+/* Aturan pencocokan calculator <-> katalog OOC: nama sama persis, abaikan
+   besar-kecil huruf & spasi ganda. Sengaja ketat — lebih baik bikin alat baru
+   ber-tanda daripada diam-diam memakai angka alat lain yang mirip namanya. */
+function oocMatchName(a,b){
+  const norm=t=>String(t||'').trim().toLowerCase().replace(/\s+/g,' ');
+  return norm(a)===norm(b);
+}
+function oocImportFromCalc(){
+  if(typeof equip==='undefined' || !Array.isArray(equip)){ alert('Data Equipment di tab Calculator belum siap.'); return; }
+  const isProd = c => /Excavator|Wheel Loader|Bulldozer|Motor Grader|Vibro|Dump Truck/i.test(c||'');
+  /* 1) kumpulkan & gabung baris sejenis (nama + stream sama) */
+  const buckets={ob:[],coal:[],coal_haul:[]}; let skipped=0;
+  equip.forEach(e=>{
+    const q=+e.qty||0; if(q<=0) return;
+    if(!isProd(e.cat)) return;                                  /* support/civil/LV -> bukan objek OOC */
+    const st=e.stream || (typeof DEFAULT_STREAM_FOR==='function'?DEFAULT_STREAM_FOR(e.cat):'ob');
+    const ck=OOC_STREAM_MAP[st];
+    if(!ck){ skipped+=q; return; }                              /* shared / rental / hrm / none */
+    const nm=oocNameOfEquip(e);
+    const hit=buckets[ck].find(x=>oocMatchName(x.nm,nm));
+    if(hit){ hit.qty+=q; return; }
+    buckets[ck].push({nm, cat:String(e.cat||''), cls:oocClassOfEquip(e), qty:q, e});
+  });
+  const jenis=buckets.ob.length+buckets.coal.length+buckets.coal_haul.length;
+  if(!jenis){ alert('Tidak ada alat produksi ber-tag OB / Coal Getting / Coal Hauling di tab Calculator (qty > 0).\n\nCek kolom Stream pada tabel Equipment Cost.'); return; }
+  const ringkas=['ob','coal','coal_haul'].map(k=>{
+    const unit=buckets[k].reduce((a,b)=>a+b.qty,0);
+    return '  - '+OOC_IMP_LABEL[k]+': '+buckets[k].length+' jenis alat ('+unit+' unit)';
+  }).join('\n');
+  if(!confirm('Ambil alat dari tab Calculator?\n\n'+ringkas+'\n\nOOC tiap unit dihitung langsung dari data calculator (harga unit, useful life, '
+    +'HOURS/YEAR, bunga, asuransi, maintenance, upah operator).\nFuel & ban tetap manual — tidak ada sumbernya di calculator.\n\n'
+    +'Baris alat pada 3 kategori itu akan DIGANTI (kategori Mineral tidak disentuh).')) return;
+  /* 2) cocokkan ke katalog OOC by nama, lalu HITUNG OOC tiap unit dari data calculator.
+        Alat baru & alat ber-sumber Auto di-refresh; alat Manual tidak disentuh
+        (mis. seed referensi PC 1250 / HD465 yang angkanya sudah tervalidasi). */
+  const s=oocState(); let created=0, refreshed=0, keptManual=0, seq=0;
+  let mres=null; try{ mres=(typeof maintCompute==='function')?maintCompute():null; }catch(err){ mres=null; }
+  const ctx=oocCalcCtx();
+  const ensure=(b)=>{
+    const mh=oocMaintPerHour(mres, b.e, ctx.hoursYear, ctx.usd);
+    const hit=s.machines.find(x=>oocMatchName(x.name,b.nm));
+    if(hit){
+      /* Alat kosong (Delivered masih 0 — mis. baru ditambah lewat "Tambah Alat")
+         TIDAK punya apa pun untuk dilindungi: adopsi jadi auto lalu isi. Yang
+         dipertahankan hanya alat manual yang memang sudah berisi angka, mis.
+         seed referensi PC 1250 / HD465. */
+      if(oocIsAuto(hit) || oocIsBlank(hit)){ oocApplyCalc(hit, b.e, ctx, mh); refreshed++; }
+      else keptManual++;
+      return hit.id;
+    }
+    const id='m_'+Date.now().toString(36)+(seq++).toString(36);
+    const m={id, name:b.nm, tipe:b.cat, cls:b.cls, inp:oocBlankInp()};
+    oocApplyCalc(m, b.e, ctx, mh);
+    s.machines.push(m); created++; return id;
+  };
+  Object.keys(buckets).forEach(ck=>{
+    s.cats[ck].rows = buckets[ck].map(b=>{
+      const mid=ensure(b);
+      const mm=oocFindM(s,mid);
+      /* Jam kerja = qty × Annual Hours alat itu (turunan HOURS/YEAR calculator),
+         bukan asumsi baru. Tetap bisa diedit manual. */
+      const hours=b.qty*(+((mm&&mm.inp)||{}).annD||0);
+      return { mid, qty:b.qty, hours };
+    });
+  });
+  /* 3) target produksi dari Production Streams — angka langsung dari calculator,
+        bukan asumsi. Yang masih 0 di calculator tidak menimpa target OOC. */
+  const gv=id=>{ const el=$(id); return el?(+el.value||0):0; };
+  const tg={ ob:gv('prod_ob_bcm'), coal:gv('prod_coal_ton'), coal_haul:gv('prod_haul_ton') };
+  let targets=0;
+  Object.keys(tg).forEach(ck=>{ if(tg[ck]>0){ s.cats[ck].target=tg[ck]; targets++; } });
+  s.cats.ob.unit='bcm'; s.cats.coal.unit='ton'; s.cats.coal_haul.unit='ton';
+  oocSave(s); if(typeof markDirty==='function')markDirty();
+  _oocImp={created, refreshed, keptManual, skipped, jenis, targets,
+           usd:ctx.usd, hoursYear:ctx.hoursYear,
+           quoted:s.machines.filter(m=>oocIsAuto(m)&&m.psrc).length,
+           expired:s.machines.filter(m=>oocIsAuto(m)&&oocQuoteExpired(m.psrc)).length,
+           incomplete:s.machines.filter(m=>oocMissingManual(m).length).length};
+  if(_oocSel>=s.machines.length) _oocSel=0;
+  oocRender();
+}
+/* Segarkan alat ber-sumber Auto dari kondisi Calculator TERKINI, tanpa menyentuh
+   baris kategori maupun alat Manual. Dipanggil saat tab OOC dibuka, sehingga
+   perubahan unit/harga di tab Calculator langsung masuk ke perhitungan OOC
+   tanpa harus menekan "Ambil dari Calculator" lagi.
+   Mengembalikan jumlah alat yang nilainya benar-benar berubah. */
+function oocSyncAuto(){
+  if(typeof equip==='undefined' || !Array.isArray(equip)) return 0;
+  const s=oocState();
+  const autos=s.machines.filter(oocIsAuto);
+  if(!autos.length) return 0;
+  let mres=null; try{ mres=(typeof maintCompute==='function')?maintCompute():null; }catch(err){ mres=null; }
+  const ctx=oocCalcCtx();
+  let changed=0;
+  autos.forEach(m=>{
+    const e=equip.find(x=>(+x.qty||0)>0 && oocMatchName(oocNameOfEquip(x), m.name));
+    if(!e){ m.stale=true; return; }        /* tak ada lagi di Calculator — angka terakhir dibiarkan */
+    delete m.stale;
+    const before=JSON.stringify(m.inp);
+    oocApplyCalc(m, e, ctx, oocMaintPerHour(mres, e, ctx.hoursYear, ctx.usd));
+    if(JSON.stringify(m.inp)!==before) changed++;
+  });
+  if(changed){ oocSave(s); if(typeof markDirty==='function')markDirty(); }
+  else oocSave(s);                          /* simpan penanda stale */
+  _oocSync=changed;
+  return changed;
+}
+let _oocSync=0;
 /* ---- RENDER ---- */
 function oocRender(){
   const host=$('ooc_body'); if(!host) return;
@@ -4326,12 +4666,36 @@ function oocRender(){
   /* ---- pemilih alat + tambah ---- */
   h+='<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px">';
   h+='<label class="text-xs" style="color:#a8a29e">Alat (katalog OOC)<br><select onchange="oocSelect(this.value)" class="num-in mt-1" style="width:260px">'+
-     s.machines.map((m,i)=>'<option value="'+i+'"'+(i===_oocSel?' selected':'')+'>'+esc(m.name)+' — '+esc(m.tipe)+(m.cls?' ('+esc(m.cls)+')':'')+'</option>').join('')+'</select></label>';
+     s.machines.map((m,i)=>'<option value="'+i+'"'+(i===_oocSel?' selected':'')+'>'+(oocIsBlank(m)?'⚠ ':'')+esc(m.name)+' — '+esc(m.tipe)+(m.cls?' ('+esc(m.cls)+')':'')+'</option>').join('')+'</select></label>';
   h+='<button class="btn btn-sec" onclick="oocAddMachine()" style="padding:6px 12px;font-size:12px">➕ Tambah Alat</button>';
+  h+='<button class="btn btn-sec" onclick="oocImportFromCalc()" style="padding:6px 12px;font-size:12px;color:#22d3ee;border-color:#0e7490" title="Ambil alat dari tabel Equipment di tab Calculator, dipetakan lewat tag 🎯 Stream: OB / Coal Getting / Coal Hauling">🔄 Ambil dari Calculator</button>';
   if(s.machines.length) h+='<button class="btn btn-sec" onclick="oocDelMachine('+_oocSel+')" style="padding:6px 12px;font-size:12px;color:#f87171">🗑 Hapus</button>';
   h+='<button class="btn btn-sec" onclick="oocExportExcel()" style="padding:6px 12px;font-size:12px;color:#22c55e;border-color:#166534">⬇ Export Excel</button>';
-  h+='<span class="text-xs" style="color:#78716c">Sel <b style="color:#7dd3fc">biru</b> = INPUT (editable) · <b style="color:#fbbf24">emas</b> = RUMUS (otomatis). Struktur & rumus = referensi OOC.</span>';
+  h+='<span class="legend" style="margin-left:auto"><i style="color:#7dd3fc">input</i><i style="color:#fbbf24">rumus</i></span>';
   h+='</div>';
+  /* ---- catatan sinkronisasi otomatis saat tab dibuka ---- */
+  if(_oocSync>0 && !_oocImp){
+    h+='<div class="note note--info">🔗 <b>'+_oocSync+' alat</b> disegarkan dari Calculator — harga, umur, jam, bunga, asuransi, maintenance, upah.</div>';
+    _oocSync=0;
+  }
+  /* ---- ringkasan impor terakhir (muncul setelah tombol Ambil dari Calculator) ---- */
+  if(_oocImp){
+    const seg=(t,c)=>'<span style="color:'+c+'">'+t+'</span>';
+    h+='<div class="note note--info note--row">';
+    h+='<b>🔄 Impor dari Calculator</b>';
+    h+=seg(_oocImp.jenis+' jenis alat','#a5f3fc');
+    h+=seg(_oocImp.created+' baru','#84cc16');
+    h+=seg(_oocImp.refreshed+' di-refresh','#84cc16');
+    if(_oocImp.keptManual) h+=seg(_oocImp.keptManual+' manual dipertahankan','#fbbf24');
+    h+=seg(_oocImp.skipped+' dilewati (Shared/Rental/HRM)','#a8a29e');
+    h+=seg(_oocImp.targets+' target terisi','#a8a29e');
+    h+=seg('kurs '+f0(_oocImp.usd)+' · '+f0(_oocImp.hoursYear)+' jam/thn','#a8a29e');
+    if(_oocImp.quoted) h+=seg('📋 '+_oocImp.quoted+' dari quote vendor','#84cc16');
+    if(_oocImp.expired) h+='<span style="color:#fca5a5;font-weight:700">⚠ '+_oocImp.expired+' quote kedaluwarsa</span>';
+    if(_oocImp.incomplete) h+='<span style="color:#fca5a5;font-weight:700">⚠ '+_oocImp.incomplete+' alat perlu fuel/ban manual</span>';
+    h+='<button class="btn btn-sec note-x" onclick="oocClearImp()" style="padding:1px 8px;font-size:10px">✕</button>';
+    h+='</div>';
+  }
   const m=s.machines[_oocSel];
   if(m){
     const mi=_oocSel, R=oocCalcMachine(m);
@@ -4341,28 +4705,48 @@ function oocRender(){
     h+='<label class="text-xs" style="color:#a8a29e">Tipe<br><input value="'+esc(m.tipe)+'" onchange="oocSetMeta('+mi+',\'tipe\',this.value)" class="num-in mt-1" style="width:140px" list="ooc_tipe_dl"></label>';
     h+='<datalist id="ooc_tipe_dl"><option>Excavator</option><option>Dump Truck</option><option>Bulldozer</option><option>Motor Grader</option><option>Wheel Loader</option><option>Drill</option></datalist>';
     h+='<label class="text-xs" style="color:#a8a29e">Class<br><input value="'+esc(m.cls||'')+'" onchange="oocSetMeta('+mi+',\'cls\',this.value)" class="num-in mt-1" style="width:110px" placeholder="mis. 90 ton"></label>';
+    /* Sumber data: Auto (angka Owning/maintenance/upah ikut calculator) vs Manual. */
+    const _auto=oocIsAuto(m);
+    h+='<label class="text-xs" style="color:#a8a29e">Sumber data<br><select onchange="oocSetSrc('+mi+',this.value)" class="num-in mt-1" style="width:210px;color:'+(_auto?'#22d3ee':'#fbbf24')+';font-weight:700" title="Auto: Delivered/umur/jam/bunga/asuransi/maintenance/upah dihitung ulang dari tab Calculator tiap impor. Manual: semua angka dikunci, impor tidak menimpanya.">'+
+       '<option value="calc"'+(_auto?' selected':'')+'>🔗 Auto dari Calculator</option>'+
+       '<option value="manual"'+(_auto?'':' selected')+'>✋ Manual</option></select></label>';
     h+='</div>';
+    if(m.stale){
+      h+='<div class="note note--warn">⚠ Alat ini <b>sudah tidak ada di tabel Equipment</b> Calculator. Angka di bawah dari sinkronisasi terakhir dan tidak lagi diperbarui.</div>';
+    }
+    const _miss=oocMissingManual(m);
+    if(_miss.length){
+      h+='<div class="note note--err">⚠ <b>Total OOC belum lengkap</b> — '+_miss.join(' & ')+' masih 0. Calculator tidak punya datanya per unit; isi di sini sekali, tidak akan ditimpa saat impor ulang.</div>';
+    }
     /* dua kolom: OWNING & OPERATING */
     h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(430px,1fr));gap:12px;margin-bottom:14px">';
     /* OWNING */
     h+='<div style="background:#14110e;border:1px solid #3d342a;border-radius:10px;padding:12px">';
     h+='<div style="font-size:12px;font-weight:800;letter-spacing:.5px;color:#fbbf24;margin-bottom:8px">🏗️ OWNING COST</div>';
     h+='<table style="width:100%;border-collapse:collapse;font-size:12px">';
-    const row=(lbl,mid_,val)=>'<tr style="border-bottom:1px solid #241a12"><td style="padding:4px 6px;color:#d6d3d1">'+lbl+'</td><td style="padding:4px 6px;color:#78716c;font-size:11px">'+(mid_||'')+'</td><td style="padding:4px 6px;text-align:right">'+val+'</td></tr>';
-    h+=row('Delivered Price (USD)','',inum(mi,'delivered',m.inp.delivered,'1000',110));
+    /* 🔗 = nilai turunan calculator; akan ditimpa saat impor ulang. */
+    const lnk=k=>(_auto && OOC_AUTO_FIELDS.indexOf(k)>=0)?'<span title="Turunan dari tab Calculator — akan ditimpa saat impor ulang" style="color:#22d3ee">🔗 </span>':'';
+    const row=(lbl,mid_,val,k)=>'<tr style="border-bottom:1px solid #241a12"><td style="padding:4px 6px;color:#d6d3d1">'+lnk(k)+lbl+'</td><td style="padding:4px 6px;color:#78716c;font-size:11px">'+(mid_||'')+'</td><td style="padding:4px 6px;text-align:right">'+val+'</td></tr>';
+    let _pnote=_auto?'harga unit ÷ kurs (Calculator)':'';
+    if(m.psrc){
+      const _xp=oocQuoteExpired(m.psrc);
+      _pnote='<span style="color:'+(_xp?'#f87171':'#84cc16')+';font-weight:700" title="Harga diambil dari quote vendor di katalog Unit Price'+(m.psrc.date?' · tanggal quote '+esc(m.psrc.date):'')+'">'+
+             (_xp?'⚠ ':'📋 ')+esc(m.psrc.label)+(m.psrc.exp?' · berlaku s/d '+esc(m.psrc.exp):'')+(_xp?' (KEDALUWARSA)':'')+'</span>';
+    }
+    h+=row('Delivered Price (USD)',_pnote,inum(mi,'delivered',m.inp.delivered,'1000',110),'delivered');
     h+=row('Harga Ban — Front (USD)','truck: dikurangkan dulu',inum(mi,'tireF',m.inp.tireF,'500'));
     h+=row('Harga Ban — Rear (USD)','',inum(mi,'tireR',m.inp.tireR,'500'));
     h+=row('Delivered less Tire','A = Delivered − Ban',fml(R.A));
-    h+=row('Salvage Value (%)','B = % × Delivered',inum(mi,'salvagePct',m.inp.salvagePct,'1',70)+' → '+fml(R.B));
+    h+=row('Salvage Value (%)',(_auto?'✋ manual — ':'')+'B = % × Delivered',inum(mi,'salvagePct',m.inp.salvagePct,'1',70)+' → '+fml(R.B));
     h+=row('Net Depreciation','C = A − B',fml(R.C));
-    h+=row('Depreciation period (tahun)','n',inum(mi,'n',m.inp.n,'1',70));
-    h+=row('Annual Use (jam/tahun)','D',inum(mi,'annD',m.inp.annD,'100'));
+    h+=row('Depreciation period (tahun)',_auto?'n — Useful Life (Calculator)':'n',inum(mi,'n',m.inp.n,'1',70),'n');
+    h+=row('Annual Use (jam/tahun)',_auto?'D — HOURS/YEAR (Calculator)':'D',inum(mi,'annD',m.inp.annD,'100'),'annD');
     h+=row('<b>Depreciation (USD/jam)</b>','E = C/(n×D)',fml(R.E));
     h+=row('Trade-in rate','r = B/A',fml(R.r));
     h+=row('Factor','F = 1−((n−1)(1−r)/n)',fml(R.F));
-    h+=row('% Interest','G',inum(mi,'intPct',m.inp.intPct,'0.5',70));
-    h+=row('% Tax','H',inum(mi,'taxPct',m.inp.taxPct,'0.5',70));
-    h+=row('% Insurance','I',inum(mi,'insPct',m.inp.insPct,'0.5',70));
+    h+=row('% Interest',_auto?'G — Interest %/yr (Calculator)':'G',inum(mi,'intPct',m.inp.intPct,'0.5',70),'intPct');
+    h+=row('% Tax',_auto?'H — ✋ manual (tak ada di Calculator)':'H',inum(mi,'taxPct',m.inp.taxPct,'0.5',70));
+    h+=row('% Insurance',_auto?'I — Insurance %/yr (Calculator)':'I',inum(mi,'insPct',m.inp.insPct,'0.5',70),'insPct');
     h+=row('Annual Rates','J = G+H+I',fml(R.J));
     h+=row('<b>Int+Tax+Ins (USD/jam)</b>','K = (F×Delivered×J)/D',fml(R.K));
     h+='<tr><td style="padding:6px;color:#fef3c7;font-weight:800">TOTAL OWNING (USD/jam)</td><td style="padding:6px;color:#78716c;font-size:11px">L = E + K</td><td style="padding:6px;text-align:right"><span class="mono" style="color:#84cc16;font-weight:800;font-size:15px">'+f2(R.L)+'</span></td></tr>';
@@ -4373,17 +4757,17 @@ function oocRender(){
     h+='<table style="width:100%;border-collapse:collapse;font-size:12px">';
     h+='<tr style="color:#a8a29e;border-bottom:1px solid #3d342a"><th style="text-align:left;padding:4px 6px">Komponen</th><th style="text-align:right;padding:4px 6px">Cons</th><th style="text-align:right;padding:4px 6px">Unit cost</th><th style="text-align:right;padding:4px 6px">USD/jam</th></tr>';
     const orow=(lbl,ck,cc,res)=>'<tr style="border-bottom:1px solid #241a12"><td style="padding:4px 6px;color:#d6d3d1">'+lbl+'</td><td style="padding:4px 6px;text-align:right">'+inum(mi,ck,m.inp[ck],'0.01',70)+'</td><td style="padding:4px 6px;text-align:right">'+inum(mi,cc,m.inp[cc],'0.01',70)+'</td><td style="padding:4px 6px;text-align:right">'+fml(res)+'</td></tr>';
-    h+=orow('⛽ Fuel (L/jam × USD/L)','fuelCons','fuelCost',R.fuel);
+    h+=orow((_auto?'✋ ':'')+'⛽ Fuel (L/jam × USD/L)','fuelCons','fuelCost',R.fuel);
     h+=orow('Crank case','crankCons','crankCost',R.lube.crank);
     h+=orow('Transmission','transCons','transCost',R.lube.trans);
     h+=orow('Final Drives','finalCons','finalCost',R.lube.final);
     h+=orow('Hydraulic Control','hydCons','hydCost',R.lube.hyd);
     h+=orow('Grease','greaseCons','greaseCost',R.lube.grease);
-    h+='<tr style="border-bottom:1px solid #241a12"><td style="padding:4px 6px;color:#d6d3d1">Filter & periodic maint (%)</td><td style="padding:4px 6px;text-align:right">'+inum(mi,'filterPct',m.inp.filterPct,'5',70)+'</td><td style="padding:4px 6px;text-align:right">'+inum(mi,'filterCost',m.inp.filterCost,'0.01',70)+'</td><td style="padding:4px 6px;text-align:right">'+fml(R.lube.filter)+'</td></tr>';
+    h+='<tr style="border-bottom:1px solid #241a12"><td style="padding:4px 6px;color:#d6d3d1"'+(_auto?' title="Turunan dari tab Maintenance: (parts + oli terjadwal) per unit ÷ jam/tahun. Baris pelumas per-fluida sengaja 0 supaya tidak dobel hitung."':'')+'>'+(_auto?'<span style="color:#22d3ee">🔗 </span>':'')+'Filter & periodic maint (%)</td><td style="padding:4px 6px;text-align:right">'+inum(mi,'filterPct',m.inp.filterPct,'5',70)+'</td><td style="padding:4px 6px;text-align:right">'+inum(mi,'filterCost',m.inp.filterCost,'0.01',70)+'</td><td style="padding:4px 6px;text-align:right">'+fml(R.lube.filter)+'</td></tr>';
     const srow=(lbl,k,res)=>'<tr style="border-bottom:1px solid #241a12"><td style="padding:4px 6px;color:#d6d3d1">'+lbl+'</td><td></td><td style="padding:4px 6px;text-align:right">'+inum(mi,k,m.inp[k],'0.1',70)+'</td><td style="padding:4px 6px;text-align:right">'+fml(res)+'</td></tr>';
-    h+=srow('🔧 Repair/maintenance (USD/jam)','repairHr',R.repairHr);
-    h+=srow('🛞 Ban / Undercarriage (USD/jam)','tiresHr',R.tiresHr);
-    h+=srow('👷 Upah Operator (USD/jam)','wage',R.wage);
+    h+=srow((_auto?'<span style="color:#22d3ee" title="Turunan tab Maintenance: repair unscheduled + upah mekanik terjadwal (+ baterai EV) ÷ jam/tahun">🔗 </span>':'')+'🔧 Repair/maintenance (USD/jam)','repairHr',R.repairHr);
+    h+=srow((_auto?'✋ ':'')+'🛞 Ban / Undercarriage (USD/jam)','tiresHr',R.tiresHr);
+    h+=srow((_auto?'<span style="color:#22d3ee" title="Gaji Operator di Manpower ÷ 200 jam/bln ÷ kurs">🔗 </span>':'')+'👷 Upah Operator (USD/jam)','wage',R.wage);
     h+='<tr><td style="padding:6px;color:#fef3c7;font-weight:800">TOTAL OPERATING (USD/jam)</td><td colspan="2" style="padding:6px;color:#78716c;font-size:11px">Σ komponen</td><td style="padding:6px;text-align:right"><span class="mono" style="color:#84cc16;font-weight:800;font-size:15px">'+f2(R.oper)+'</span></td></tr>';
     h+='</table>';
     h+='<div style="margin-top:10px;padding:10px;background:linear-gradient(90deg,#fbbf2422,transparent);border:1px solid #fbbf24;border-radius:8px;display:flex;justify-content:space-between;align-items:center"><span style="font-weight:800;color:#fef3c7">💰 TOTAL OOC — '+esc(m.name)+'</span><span class="mono" style="color:#fbbf24;font-weight:800;font-size:18px">'+f2(R.total)+' USD/jam</span></div>';
@@ -4391,19 +4775,21 @@ function oocRender(){
   } else {
     h+='<div class="text-xs" style="color:#a8a29e;font-style:italic;margin-bottom:14px">— Katalog kosong. Klik ➕ Tambah Alat. —</div>';
   }
-  /* ---- KATEGORI: OB / COAL / MINERAL ---- */
+  /* ---- KATEGORI: OB / COAL GETTING / COAL HAULING / MINERAL ---- */
   h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:12px">';
-  [['ob','⛏️'],['coal','🪨'],['mineral','⛰️']].forEach(([ck,icon])=>{
+  [['ob','⛏️'],['coal','🪨'],['coal_haul','🚛'],['mineral','⛰️']].forEach(([ck,icon])=>{
     const c=s.cats[ck];
     let tot=0;
     const rowsH=c.rows.map((r,ri)=>{
       const mm=oocFindM(s,r.mid); const ooc=mm?oocCalcMachine(mm).total:0;
       const cost=(+r.hours||0)*ooc; tot+=cost;
-      const opts=s.machines.map(x=>'<option value="'+esc(x.id)+'"'+(x.id===r.mid?' selected':'')+'>'+esc(x.name)+'</option>').join('');
+      const opts=s.machines.map(x=>'<option value="'+esc(x.id)+'"'+(x.id===r.mid?' selected':'')+'>'+(oocIsBlank(x)?'⚠ ':'')+esc(x.name)+'</option>').join('');
+      /* Jam 0 = hasil impor yang belum diisi -> dibingkai merah supaya tidak terlewat. */
+      const hWarn=!((+r.hours)>0);
       return '<tr style="border-bottom:1px solid #241a12">'+
         '<td style="padding:3px 4px"><select onchange="oocCatRowSet(\''+ck+'\','+ri+',\'mid\',this.value)" class="num-in" style="width:100%;padding:3px 4px;font-size:11px">'+opts+'</select></td>'+
         '<td style="padding:3px 4px"><input type="number" min="0" value="'+(+r.qty||0)+'" onchange="oocCatRowSet(\''+ck+'\','+ri+',\'qty\',this.value)" class="num-in mono" style="width:48px;padding:3px 4px;font-size:11px;background:#0c1620;border-color:#155e75;color:#7dd3fc"></td>'+
-        '<td style="padding:3px 4px"><input type="number" min="0" step="500" value="'+(+r.hours||0)+'" onchange="oocCatRowSet(\''+ck+'\','+ri+',\'hours\',this.value)" class="num-in mono" style="width:78px;padding:3px 4px;font-size:11px;background:#0c1620;border-color:#155e75;color:#7dd3fc" title="TOTAL jam kerja semua unit tipe ini (qty × jam/unit)"></td>'+
+        '<td style="padding:3px 4px"><input type="number" min="0" step="500" value="'+(+r.hours||0)+'" onchange="oocCatRowSet(\''+ck+'\','+ri+',\'hours\',this.value)" class="num-in mono" style="width:78px;padding:3px 4px;font-size:11px;background:#0c1620;border-color:'+(hWarn?'#dc2626':'#155e75')+';color:#7dd3fc" title="'+(hWarn?'BELUM DIISI — isi TOTAL jam kerja semua unit tipe ini (qty × jam/unit)':'TOTAL jam kerja semua unit tipe ini (qty × jam/unit)')+'"></td>'+
         '<td class="mono" style="padding:3px 4px;text-align:right;color:#fbbf24">'+f2(ooc)+'</td>'+
         '<td class="mono" style="padding:3px 4px;text-align:right;color:#e7e5e4">'+f0(cost)+'</td>'+
         '<td style="padding:3px 2px"><button class="btn-del" style="font-size:9px;padding:1px 5px" onclick="oocCatRowDel(\''+ck+'\','+ri+')">✕</button></td></tr>';
@@ -4425,7 +4811,18 @@ function oocRender(){
     h+='</div>';
   });
   h+='</div>';
-  h+='<div class="text-xs" style="color:#78716c;margin-top:12px">Rumus mengikuti referensi 1:1 — validasi: PC 1250 → Owning 45.55 · Operating 193.60 · OOC 239.15 $/jam; HD465 → 96.43 $/jam; OB 4.068.000 bcm → 2.02 USD/bcm. Alat baru mulai dari 0 (isi sesuai data/quote — tidak ada angka karangan). Katalog & kategori tersimpan di rc_ooc_v1 (sync tim).</div>';
+  /* Kurs: OOC selalu memakai USD Rate tab Calculator. Peringatan hanya muncul
+     bila tab Maintenance memakai kurs lain (labor sudah dikonversi). */
+  (function(){
+    const uc=+($('usd')?.value)||0, um=+($('m_usd')?.value)||0;
+    if(uc>0 && um>0 && um!==uc){
+      h+='<div class="note note--warn note--foot">⚠ Tab Maintenance memakai kurs lain (Rp '+f0(um)+'/$ vs Rp '+f0(uc)+'/$). Upah mekanik pada baris Repair sudah dikonversi ke kurs Calculator (×'+(um/uc).toFixed(4)+').</div>';
+    }
+  })();
+  h+='<details class="howto"><summary>Sumber angka</summary><div>'+
+     '<b>🔗 Auto dari Calculator</b> — Delivered (quote vendor bila ada, kalau tidak Unit Price baris Equipment) · n (Useful Life) · D (HOURS/YEAR) · %Interest · %Insurance · Repair &amp; periodic maint (tab Maintenance) · upah operator (Manpower ÷ 200 jam/bln). Semua nilai USD memakai USD Rate tab Calculator.<br>'+
+     '<b>✋ Manual</b> — Fuel, Ban, Salvage, %Tax. Calculator tidak punya datanya per unit. Ganti mode lewat <i>Sumber data</i> di tiap alat; alat baru mulai dari 0.'+
+     '</div></details>';
   host.innerHTML=h;
 }
 
@@ -4460,12 +4857,12 @@ function oocExportExcel(){
   g1.push([]);
   g1.push([T('RINGKASAN KATEGORI',sSec)]);
   g1.push([T('Kategori',sHead),T('Target',sHead),T('Satuan',sHead),T('Total Cost (USD)',sHead),T('Cost per Satuan (USD)',sHead)]);
-  [['ob'],['coal'],['mineral']].forEach(([ck])=>{ const c=s.cats[ck]; let tot=0;
+  OOC_CATS.forEach(ck=>{ const c=s.cats[ck]; let tot=0;
     c.rows.forEach(r=>{ const mm=oocFindM(s,r.mid); if(mm) tot+=(+r.hours||0)*oocCalcMachine(mm).total; });
     g1.push([T(c.label),N0(c.target),T(c.unit),N0(tot),(+c.target>0?N4(tot/c.target,sTot):T('—',sNum))]); });
   put('Ringkasan',g1,[{wch:24},{wch:14},{wch:10},{wch:14},{wch:15},{wch:16}]);
   /* ---- Sheet per kategori ---- */
-  [['ob','OOC OB'],['coal','OOC Coal'],['mineral','OOC Mineral']].forEach(([ck,sheetName])=>{
+  [['ob','OOC OB'],['coal','OOC Coal Getting'],['coal_haul','OOC Coal Hauling'],['mineral','OOC Mineral']].forEach(([ck,sheetName])=>{
     const c=s.cats[ck]; let tot=0;
     const g=[[T(c.label.toUpperCase()+' — OWNING & OPERATING COST',sTitle)],[],
       [T('Target produksi',sCell),N0(c.target),T(c.unit,sCell)],[],
@@ -4667,7 +5064,7 @@ function feasRender(){
     h+='</div>';
   });
   h+='</div>';
-  h+='<div class="text-xs" style="color:#78716c;margin-top:12px">Rentang "wajar" Uji 3 = kuartil p25–p75 komposisi opex dari project historis (kelompok: mining/haul/rental) + kelonggaran. Settings tersimpan lokal (rc_feas_v1).</div>';
+  h+='<div class="note note--foot">Rentang wajar pada Uji 3 = kuartil p25–p75 komposisi opex project historis (mining / haul / rental), plus kelonggaran.</div>';
   host.innerHTML=h;
 }
 
@@ -5295,7 +5692,7 @@ function genRender(){
       h+='</tr>';
     });
     h+='</table></div>';
-    h+='<div class="text-xs" style="color:#78716c;margin-top:8px">⭐ = rate termurah per kombinasi. Kolom Fleet & Capex = kombinasi pertama yang dicentang. Klik "Pakai ini" lalu Generate — kelas TIDAK diganti diam-diam; kalau tak sanggup memenuhi target akan muncul ⚠️ di pratinjau.</div>';
+    h+='<div class="note note--foot">⭐ = rate termurah. Kelas tidak pernah diganti diam-diam — kalau tak sanggup memenuhi target, ⚠️ muncul di pratinjau.</div>';
     h+='</div>';
   }
   /* ---- RULES (editable) ---- */
@@ -5315,7 +5712,7 @@ function genRender(){
   h+='</div></div>';
   h+='<div style="margin-top:10px"><div class="text-xs" style="color:#fde68a;font-weight:700;margin-bottom:4px">Alat Support (rasio)</div><div style="display:flex;gap:12px;flex-wrap:wrap">';
   h+=rinp('sup.kmPerWT','km /WT',R.sup.kmPerWT,'0.5','')+rinp('sup.kmPerVibro','km /vibro',R.sup.kmPerVibro,'0.5','')+rinp('sup.ftPerSite','FT /site',R.sup.ftPerSite,'1','')+rinp('sup.lubePerUnits','Unit /lube truck',R.sup.lubePerUnits,'1','')+rinp('sup.lvBase','LV dasar',R.sup.lvBase,'1','')+rinp('sup.lvPerFleet','LV /fleet',R.sup.lvPerFleet,'1','')+rinp('sup.lampExcaPer','Exca /lamp (Pit)',R.sup.lampExcaPer,'1','1 tower lamp per sekian excavator di Pit')+rinp('sup.lampDozerPer','Dozer /lamp (Disposal)',R.sup.lampDozerPer,'1','1 tower lamp per sekian dozer di Disposal');
-  h+='</div><div class="text-xs" style="color:#78716c;margin-top:6px">Jumlah dozer &amp; grader TIDAK lagi dari rasio — dihitung dari produktivitas (lihat seksi Dozer &amp; Grader di bawah).</div></div>';
+  h+='</div><div class="note note--foot">Jumlah dozer &amp; grader dihitung dari produktivitas, bukan rasio — lihat seksi Dozer &amp; Grader di bawah.</div></div>';
   h+='<div style="margin-top:10px"><div class="text-xs" style="color:#fde68a;font-weight:700;margin-bottom:4px">Dozer — Produktivitas & Pemilihan (Handbook Komatsu; Dozing · Kering · Average)</div><div style="display:flex;gap:12px;flex-wrap:wrap">';
   h+=rinp('dozer.dist','Jarak dozing (m)',R.dozer.dist,'0.5','Jarak crestline kondisi Kering (sheet Parameter Calc = 4.5)');
   h+=rinp('dozer.f','f maju (m/mnt)',R.dozer.f,'0.01','Forward speed aktivitas Dozing');
@@ -5340,7 +5737,7 @@ function genRender(){
   h+=rinp('grader.hoursTarget','Jam kerja target',R.grader.hoursTarget,'1','Jam utk menyelesaikan grading seluruh jalan (Excel: 12)');
   h+=rinp('grader.grpMaxGrader','Maks grader',R.grader.grpMaxGrader,'1','Iterasi model naik bila jumlah > ini');
   h+=rinp('grader.priceExp','Eksponen harga',R.grader.priceExp,'0.05','Harga model = anchor tier × (blade/ancBlade)^eksponen');
-  h+='</div><div class="text-xs" style="color:#78716c;margin-top:6px">Road length = input Jarak (km) di form atas. Road width = lebar dump truck terlebar × faktor (roundup).</div></div>';
+  h+='</div><div class="note note--foot">Road length = Jarak (km) di form atas. Road width = lebar dump truck terlebar × faktor, dibulatkan ke atas.</div></div>';
   h+='<div style="margin-top:10px"><div class="text-xs" style="color:#fde68a;font-weight:700;margin-bottom:4px">Manpower — Struktur Kontraktor (operator · mekanik · supervisi · HSE · admin)</div><div style="display:flex;gap:12px;flex-wrap:wrap">';
   h+=rinp('mp.shifts','Shift',R.mp.shifts,'1','Jumlah shift operasi per hari');
   h+=rinp('mp.opProd','Op /unit produksi',R.mp.opProd,'0.1','Operator per unit exca+DT (2 shift + cuti/absensi)');
@@ -5357,7 +5754,7 @@ function genRender(){
   h+=rinp('mp.checkerPerShift','Checker /shift',R.mp.checkerPerShift,'1','Pit control / checker per shift');
   h+=rinp('mp.adminPct','Admin (% HC)',R.mp.adminPct,'1','Cluster admin/HRGA/logistik = % dari headcount teknis');
   h+=rinp('mp.securityQty','Security /site',R.mp.securityQty,'1','Personel security site (pos × 3 shift)');
-  h+='</div><div class="text-xs" style="color:#78716c;margin-top:8px">Operator dihitung sbg SATU mp_ratio blended (produksi & support) supaya mekanisme auto-operator app tetap jalan. Harga katalog kelas alat (Tier 1 anchor historis; Tier 2 riil bila ada quote, sisanya parametrik) — nanti diganti database lengkap. Kosongkan field → kembali ke default.</div></div>';
+  h+='</div><div class="note note--foot">Operator dipakai sebagai satu mp_ratio gabungan (produksi + support) supaya auto-operator tetap jalan. Kosongkan field untuk kembali ke default.</div></div>';
   h+='</details>';
   /* ---- HASIL GENERATE TERAKHIR ---- */
   const L=window._genLast;
@@ -5384,7 +5781,7 @@ function genRender(){
       h+='</tr>';
     });
     h+='</table></div>';
-    h+='<div class="text-xs" style="color:#78716c;margin-top:8px">⭐ = rate terendah. Tiap variant adalah project penuh — buka untuk lihat semua tab (Calculator, TCO, Cashflow, ⚖️ Uji Kelayakan). Rate = HPP × margin 1.2. Total Produksi = kapasitas efektif fleet selama project (basis HPP/Rate — bisa &gt; target klien karena ada cadangan kapasitas); Total Cost = seluruh biaya project (equipment + support + manpower + maintenance) — cek: Total Cost ÷ (Total Produksi × kurs) = HPP.</div>';
+    h+='<div class="note note--foot">⭐ = rate terendah. Tiap variant adalah project penuh — buka untuk lihat semua tab. Rate = HPP × margin 1,2. <b>Total Produksi</b> = kapasitas efektif fleet (bisa &gt; target klien karena ada cadangan). <b>Total Cost</b> = seluruh biaya project.</div>';
     h+='</div>';
   }
   host.innerHTML=h;
@@ -7375,7 +7772,7 @@ function calc(){
           <tr style="${hi('rental_mo')}"><td style="padding:6px 8px">💰 Rental / Unit / Month (720h)</td><td class="text-right mono" style="padding:6px 8px">$ ${fmt(hppRentalMo)}</td><td class="text-right mono font-semibold" style="padding:6px 8px;color:#fbbf24">$ ${fmt(rateRentalMo)}</td><td style="padding:6px 8px;color:#d6a15c">$/unit/month</td></tr>
         </tbody>
       </table>
-      <div class="text-xs mt-2" style="color:#d6a15c">Distance: <span class="mono" style="color:#fbbf24">${fmt2(dist)} km</span> · Volume basis: rumus Rate Calc.xlsx (I82:K89) · Rental basis: Total Cost USD ÷ (Σ qty × hours/yr × years), exclude Vessel attachments. Baris dengan border amber adalah mode aktif.</div>
+      <div class="note note--foot">Distance <span class="mono" style="color:#fbbf24">${fmt2(dist)} km</span> · Rental basis = Total Cost USD ÷ (Σ qty × jam/th × tahun), Vessel attachment dikecualikan. Baris bergaris emas = mode aktif.</div>
     `;
   }
 
@@ -8455,9 +8852,9 @@ function abRenderPreview(){
   h+='</table></div>';
   if(refScn){
     const eq=(refScn.equip||[]).length, mp=(refScn.manpower||[]).reduce((a,m)=>a+(+m.qty||0),0), sup=(refScn.support||[]).length;
-    h+='<div class="text-xs" style="color:#84cc16;margin-top:10px">📋 Menyalin dari <b>'+refName+'</b>: '+eq+' baris alat · '+mp+' crew · '+sup+' support · produksi (cek ulang setelah terapkan).</div>';
+    h+='<div class="note note--ok note--foot">📋 Menyalin dari <b>'+refName+'</b> — '+eq+' baris alat · '+mp+' crew · '+sup+' support. Cek ulang setelah terapkan.</div>';
   } else {
-    h+='<div class="text-xs" style="color:#a8a29e;margin-top:10px">Fleet & crew: pakai default archetype — isi manual setelah terapkan. Produksi OB/Coal juga diisi manual.</div>';
+    h+='<div class="note note--foot">Fleet, crew, dan produksi OB/Coal memakai default archetype — isi manual setelah terapkan.</div>';
   }
   const host=$('ab_preview'); if(host) host.innerHTML=h;
 }
@@ -10314,9 +10711,29 @@ const MAINT_EV_SCALE = {
   batteryCostUSD:200000, batteryCycleLife:4000,
 };
 
-/* Parse tonnage/payload from handbook class/model strings.
-   Excavator/Bulldozer/Grader: "50 ton", "200 ton", "15 ton wheeled"
-   Dump Truck: payload lookup via HAULER_DB, else class "100T", "280 ton" */
+/* Tonase alat untuk size multiplier maintenance. Sumber sah, berurutan:
+     1. Dump Truck      -> payload di HAULER_DB
+     2. Vessel          -> parsing kelas/model (blok di bawah)
+     3. Kategori lain   -> field `class` di katalog kategori itu
+        · Excavator/Bulldozer/Motor Grader/Vibro Roller = BERAT OPERASI
+        · Wheel Loader = KAPASITAS BUCKET (bukan berat) — ditangani tier
+          khusus di maintSizeMultiplier()
+     4. Seri yang penomorannya memang menyatakan tonase (PC/HD/EX ÷ 10)
+     5. Tidak diketahui -> 0, maintSizeMultiplier() memakai baseline ×1.0
+
+   JANGAN memungut angka sembarang dari nama model. Fallback lama
+   ("pakai angka 2-4 digit pertama kalau 5..500") membaca "P460" sebagai
+   460 ton dan "WA500-8" sebagai 500 ton — membuat 192 dari 406 model
+   katalog (47%) kelebihan biaya maintenance, terparah 12×.
+   Excavator & Dump Truck tidak pernah kena karena punya DB sendiri. */
+function maintCatalogTon(e){
+  try{
+    const c=EQ_CATALOG[e.cat]; if(!c) return 0;
+    const row=((c.db||c.models)[e.merk]||[]).find(x=>x.model===e.model);
+    const m=String((row&&row.class)||'').match(/([\d.]+)\s*ton/i);
+    return m?+m[1]:0;
+  }catch(err){ return 0; }
+}
 function maintExtractTonnage(e){
   /* Dump Truck — prefer payload from HAULER_DB (authoritative handbook value). */
   if(e.cat==='Dump Truck' && HAULER_DB[e.merk]){
@@ -10347,33 +10764,38 @@ function maintExtractTonnage(e){
     if(/980E/i.test(e.model)) return 360;
     return 60;  /* mid-range default */
   }
-  /* Everything else — read from LOADER_DB class if present, or model name fallback. */
-  if(LOADER_DB[e.merk]){
-    const row = LOADER_DB[e.merk].find(m => m.model===e.model);
-    if(row && row.class){
-      const mCls = row.class.match(/(\d+(?:\.\d+)?)\s*ton/i);
-      if(mCls) return +mCls[1];
-    }
-  }
-  /* Fallback: parse from model name (e.g. "PC500LC" → 50, "HD785" → 78) */
-  const m = (e.model||'').match(/(\d{2,4})/);
-  if(m){
-    const n = +m[1];
-    /* Komatsu PC-series: PC200 → 20ton, PC500 → 50ton, etc. */
-    if(/^PC/i.test(e.model)) return n/10;
-    /* HD truck: HD785 → 78ton, HD1500 → 150ton */
-    if(/^HD/i.test(e.model)) return n/10;
-    /* EX: EX1200 → 120, EX2600 → 260 */
-    if(/^EX/i.test(e.model)) return n/10;
-    /* Generic: use number as-is if plausible (5-500 ton) */
-    if(n>=5 && n<=500) return n;
-  }
-  return 30; /* safe mid-range default */
+  /* Kategori lain — field `class` di katalog (data handbook, bukan tebakan). */
+  const t = maintCatalogTon(e);
+  if(t>0) return t;
+  /* Seri yang penomorannya MEMANG menyatakan tonase: PC500 → 50, HD785 → 78,
+     EX1200 → 120. Hanya berlaku kalau nomor seri ada di AWAL nama model —
+     dipakai untuk model yang diketik manual & tidak ada di katalog. */
+  const ser = (e.model||'').match(/^\s*(PC|HD|EX)\s*(\d{2,4})/i);
+  if(ser) return (+ser[2])/10;
+  return 0; /* tidak diketahui — baseline ×1.0, ditandai di tab Maintenance */
 }
 
 /* Size tier multipliers — non-linear: bigger units cost disproportionately more
    because components are fewer-of-a-kind / specialty. */
 function maintSizeMultiplier(tonnage, cat){
+  const t = +tonnage || 0;
+  /* Ukuran tidak diketahui → baseline. Lebih baik netral daripada menebak. */
+  if(t<=0) return 1.0;
+  /* Wheel Loader — `class` di katalog adalah KAPASITAS BUCKET, bukan berat
+     operasi. Tier di-anchor ke berat operasi nyata seri Komatsu WA:
+       bucket  5 t → WA320  ±16 t unit → setara PC200 (baseline ×1.0)
+       bucket  9 t → WA500  ±34 t unit
+       bucket 11 t → WA600  ±55 t unit
+       bucket 19 t → WA900  ±100 t unit
+       bucket 27 t → WA1200 ±220 t unit */
+  if(cat==='Wheel Loader'){
+    if(t>=25) return 6.0;
+    if(t>=15) return 3.5;
+    if(t>=10) return 2.0;
+    if(t>=8)  return 1.3;
+    if(t>=4)  return 1.0;
+    return 0.7;
+  }
   /* Dump Truck payload tiers */
   if(cat==='Dump Truck'){
     if(tonnage>=250) return 6.0;  /* Ultra (CAT 797, BelAZ 75710) */
@@ -10455,6 +10877,41 @@ function maintParamsFor(e){
 }
 /* Reset ALL rows' params back to handbook-calibrated defaults. Useful after
    baseline updates to re-pull the current calibration across the whole fleet. */
+/* ============================================================
+   MIGRASI SEKALI-JALAN — perbaikan size multiplier (bug tonase).
+   Parameter maintenance di-cache per unit di maintState dan di-persist ke
+   rc_maint_v1 (ikut SYNC_KEYS → tersinkron ke seluruh tim). Memperbaiki
+   maintExtractTonnage() saja TIDAK mengubah baris yang sudah ter-cache,
+   jadi baris yang tonasenya berubah harus di-hitung ulang sekali.
+   Yang dipertahankan: PA target & jumlah event yang di-override user.
+   Yang hilang: edit manual parts/oli/manhour pada baris terdampak —
+   sebagian besar justru dibuat untuk mengimbangi bug ini.
+   ============================================================ */
+const MAINT_SIZEFIX_FLAG='__sizeFixV1';
+let _maintMigrated=0;
+function maintMigrateSizeFix(){
+  if(!maintState || maintState[MAINT_SIZEFIX_FLAG]) return 0;
+  let n=0;
+  Object.keys(maintState).forEach(key=>{
+    if(key.indexOf('__')===0) return;                 /* kunci meta, bukan baris alat */
+    const p=maintState[key];
+    if(!p || typeof p!=='object') return;
+    /* maintKey = `${cat}|${merk}|${model}` — model bisa memuat '|', jadi sisanya digabung. */
+    const parts=String(key).split('|');
+    const e={cat:parts[0]||'', merk:parts[1]||'', model:parts.slice(2).join('|')};
+    let newTon=0;
+    try{ newTon=+maintExtractTonnage(e)||0; }catch(err){ return; }
+    if((+p.tonnage||0)===newTon) return;               /* ukuran tidak berubah */
+    let fresh; try{ fresh=maintDefaultsFor(e); }catch(err){ return; }
+    if(p._paOverride){ fresh.paTarget=p.paTarget; fresh._paOverride=true; }
+    if(p._eventsOverride){ fresh.unschedEvents=p.unschedEvents; fresh._eventsOverride=true; }
+    maintState[key]=fresh; n++;
+  });
+  maintState[MAINT_SIZEFIX_FLAG]=true;
+  maintPersist();
+  _maintMigrated=n;
+  return n;
+}
 function maintResetAll(){
   if(!confirm('Reset semua unit ke default handbook? Semua edit manual parameter maintenance akan hilang.')) return;
   maintState = {};
@@ -10538,6 +10995,7 @@ function maintIsNoMaintCat(cat){
 
 /* Core computation — returns per-unit costs + fleet totals. */
 function maintCompute(){
+  maintMigrateSizeFix();
   const hoursYear = +$('m_hoursYear').value || 5000;
   const usd       = +$('m_usd').value       || 16500;
   /* Labor rate auto-derived from Plant Manpower salaries in Calculator. */
@@ -10650,7 +11108,17 @@ function maintCompute(){
 /* Render the maintenance tab — per-unit editable cards + KPIs + breakdown table. */
 function maintRender(){
   const list = $('m_unit_list'); if(!list) return;
-  const comp = maintCompute();
+  const comp = maintCompute();   /* memicu maintMigrateSizeFix() sekali */
+  if(_maintMigrated>0){
+    const _n=_maintMigrated; _maintMigrated=0;
+    const _b=$('m_migrate_note');
+    if(_b){
+      _b.style.display='block';
+      _b.innerHTML='\u2705 <b>Perbaikan ukuran alat</b> — '+_n+' unit dihitung ulang. '+
+        'Sebelumnya tonase ditebak dari angka pada nama model (mis. \"WA500-8\" dibaca 500 ton), '+
+        'sehingga biaya maintenance-nya terlalu tinggi. PA target &amp; jumlah event yang kamu set manual tetap dipertahankan.';
+    }
+  }
   const rows = comp.rows;
   const T = comp.totals;
   const usd = comp.params.usd;
