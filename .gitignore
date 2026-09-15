@@ -10,6 +10,12 @@
 !index.html
 !README.md
 
+# Workflow keep-alive Supabase (ping berkala agar project free-tier tidak di-pause).
+# Aman: hanya berisi anon key yang memang sudah publik di index.html.
+!.github/
+!.github/workflows/
+!.github/workflows/supabase-keepalive.yml
+
 # EV Hauling Simulator (di-iframe oleh app) — aman dipublish: tanpa data rate/gaji/project,
 # self-contained (CDN only), hanya kredit penulis.
 !ev-hauling-simulator-v2.1-swap-charge.html

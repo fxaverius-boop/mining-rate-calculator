@@ -1,0 +1,25 @@
+# Ping berkala ke Supabase agar project free-tier tidak di-pause otomatis
+# (Supabase menidurkan project gratis yang tidak ada aktivitas ±7 hari).
+# Anon key di bawah memang publik by design (sudah ada di index.html, dijaga RLS).
+name: Supabase keep-alive
+
+on:
+  schedule:
+    # Setiap 2 hari jam 01:00 UTC (08:00 WIB)
+    - cron: "0 1 */2 * *"
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping REST endpoint
+        run: |
+          KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJkYWZ4YmhremRxeGt4c2Zvb21yIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3NDM3NjcsImV4cCI6MjA5NzMxOTc2N30.C7OFhXNpRlaj9n05UFuQYehz0IUE3rqTs4SNi1tYKsQ"
+          CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 \
+            -H "apikey: $KEY" -H "Authorization: Bearer $KEY" \
+            "https://bdafxbhkzdqxkxsfoomr.supabase.co/rest/v1/team_data?select=id&limit=1")
+          echo "HTTP $CODE"
+          # 200 = normal; selain itu anggap gagal supaya kelihatan merah di tab Actions
+          # (503/000 = project sedang pause/mati -> perlu restore manual).
+          [ "$CODE" = "200" ]
